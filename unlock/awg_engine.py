@@ -53,10 +53,11 @@ def build_config(profile: Profile) -> str:
     and 0.0.0.0/0 in AllowedIPs is what makes it take the default route.
     """
     settings = profile.outbound
+    addresses = settings.get("address") or ["10.0.0.2/32"]
     lines = [
         "[Interface]",
         f"PrivateKey = {settings['private_key']}",
-        f"Address = {', '.join(settings.get('address') or ['10.0.0.2/32'])}",
+        f"Address = {', '.join(addresses)}",
         # Without a DNS line Windows keeps the ISP's resolver on the physical
         # adapter, which both leaks lookups and answers with the wrong country.
         f"DNS = {', '.join(settings.get('dns') or ['1.1.1.1', '8.8.8.8'])}",
@@ -71,13 +72,29 @@ def build_config(profile: Profile) -> str:
         "[Peer]",
         f"PublicKey = {settings['public_key']}",
         f"Endpoint = {settings['server']}:{settings['server_port']}",
-        f"AllowedIPs = {', '.join(settings.get('allowed_ips') or ['0.0.0.0/0'])}",
+        f"AllowedIPs = {', '.join(_routable(settings.get('allowed_ips') or ['0.0.0.0/0'], addresses))}",
     ]
     if settings.get("pre_shared_key"):
         lines.append(f"PresharedKey = {settings['pre_shared_key']}")
     lines.append(f"PersistentKeepalive = {settings.get('keepalive') or 25}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _routable(allowed: list[str], addresses: list[str]) -> list[str]:
+    """Drop IPv6 routes when the interface has no IPv6 address to send them from.
+
+    Plenty of published configs carry ``AllowedIPs = 0.0.0.0/0, ::/0`` next to an
+    IPv4-only Address. The tunnel service takes the v6 route at face value, so
+    every IPv6 packet is handed to an interface that cannot emit it and is
+    dropped, instead of going out over the physical link.
+    """
+    if any(":" in address for address in addresses):
+        return allowed
+    kept = [route for route in allowed if ":" not in route]
+    if len(kept) != len(allowed):
+        log.info("Dropped IPv6 routes: the profile has no IPv6 address")
+    return kept or ["0.0.0.0/0"]
 
 
 def _run(argv: list[str], timeout: float = 30.0) -> subprocess.CompletedProcess:

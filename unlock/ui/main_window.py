@@ -37,7 +37,7 @@ from .benchmark_dialog import BenchmarkDialog
 from .i18n import tr
 from .power_button import PowerButton
 from .vpn_tab import VpnTab
-from .widgets import NoScrollComboBox, Switch
+from .widgets import GamepadGlyph, NoScrollComboBox, Switch
 
 log = logger.get_logger("ui")
 
@@ -288,12 +288,49 @@ class MainWindow(QWidget):
 
         layout.addStretch(1)
         layout.addWidget(self._build_metrics_card())
+        layout.addWidget(self._build_game_card())
 
         self._retest = QPushButton(tr("Re-test / Benchmark"))
         self._retest.clicked.connect(lambda: self.run_benchmark(first_run=False))
         layout.addWidget(self._retest)
 
         return page
+
+    def _build_game_card(self) -> QWidget:
+        """Game mode: the one bypass setting worth surfacing outside Settings.
+
+        It is the difference between "web pages load" and "voice chat and
+        matchmaking work", so it belongs where the power button is rather than
+        four cards down a settings list.
+        """
+        card = _card()
+        row = QHBoxLayout(card)
+        row.setContentsMargins(16, 12, 16, 12)
+        row.setSpacing(12)
+
+        self._game_glyph = GamepadGlyph()
+        row.addWidget(self._game_glyph, 0, Qt.AlignmentFlag.AlignTop)
+
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        title = QLabel(tr("Game mode"))
+        title.setObjectName("sectionTitle")
+        text.addWidget(title)
+
+        self._game_hint = QLabel()
+        self._game_hint.setObjectName("hint")
+        self._game_hint.setWordWrap(True)
+        text.addWidget(self._game_hint)
+        row.addLayout(text, 1)
+
+        self._cb_game = Switch()
+        self._cb_game.setToolTip(
+            tr("Widens the filter to the game port range (1024-65535).")
+        )
+        self._cb_game.toggled.connect(self._on_game_filter_toggled)
+        row.addWidget(self._cb_game, 0, Qt.AlignmentFlag.AlignTop)
+
+        return card
 
     def _build_metrics_card(self) -> QWidget:
         card = _card()
@@ -530,6 +567,14 @@ class MainWindow(QWidget):
         )
         engines_layout.addWidget(self._cb_tg_auto)
 
+        self._cb_tg_ftls = Switch(tr("Disguise the Telegram proxy as HTTPS"))
+        self._cb_tg_ftls.setToolTip(
+            tr("Fake TLS: the handshake looks like an ordinary HTTPS session, and "
+               "anything else that connects to the port sees a real website.")
+        )
+        self._cb_tg_ftls.toggled.connect(self._on_fake_tls_toggled)
+        engines_layout.addWidget(self._cb_tg_ftls)
+
         strategy_row = QHBoxLayout()
         strategy_row.addWidget(QLabel(tr("DPI strategy")))
         self._combo_strategy = NoScrollComboBox()
@@ -714,6 +759,8 @@ class MainWindow(QWidget):
             (self._cb_dpi, cfg.get("enable_dpi", True)),
             (self._cb_tg, cfg.get("enable_telegram", True)),
             (self._cb_tg_auto, cfg.get("telegram_auto_proxy", True)),
+            (self._cb_tg_ftls, cfg.get("telegram_fake_tls", True)),
+            (self._cb_game, cfg.get("game_filter", False)),
             (self._cb_vpn, cfg.get("enable_vpn", False)),
             (self._cb_vpn_proxy, cfg.get("vpn_system_proxy", True)),
             (self._cb_vpn_tun, cfg.get("vpn_tun", True)),
@@ -729,6 +776,7 @@ class MainWindow(QWidget):
         self._select_combo(self._combo_accent, cfg.get("accent", theme.DEFAULT_ACCENT))
         self._select_combo(self._combo_language, cfg.get("language", i18n.SYSTEM))
         self._select_combo(self._combo_strategy, cfg.get("dpi_strategy"))
+        self._refresh_game_card()
 
     @staticmethod
     def _select_combo(combo: QComboBox, value) -> None:
@@ -764,6 +812,33 @@ class MainWindow(QWidget):
         self._load_settings_into_ui()
         self._refresh_metrics()
 
+    def _on_fake_tls_toggled(self, enabled: bool) -> None:
+        in_force = self._controller.set_fake_tls(enabled)
+        if in_force != enabled:
+            # The bridge refused the switch and kept the old handshake, so the
+            # switch has to go back or it would misreport what is running.
+            self._cb_tg_ftls.blockSignals(True)
+            self._cb_tg_ftls.setChecked(in_force)
+            self._cb_tg_ftls.blockSignals(False)
+        self._refresh_metrics()
+
+    def _on_game_filter_toggled(self, enabled: bool) -> None:
+        needs_restart = self._controller.set_game_filter(enabled)
+        self._refresh_game_card()
+        if needs_restart:
+            # The port range is part of the argument vector winws was launched
+            # with, so the change only lands on a fresh process.
+            self._controller.restart_dpi()
+
+    def _refresh_game_card(self) -> None:
+        enabled = self._controller.game_filter
+        self._game_glyph.set_active(enabled)
+        anim.crossfade_text(self._game_hint, tr(
+            "Voice chat, matchmaking and game traffic go through the bypass too."
+            if enabled else
+            "Off — only web ports are filtered. Turn on if games or voice chat lag."
+        ))
+
     def _on_power_clicked(self) -> None:
         # While a hidden test is running the button is the way back to it, since
         # connecting mid-benchmark would fight the engine for the filter driver.
@@ -794,6 +869,9 @@ class MainWindow(QWidget):
 
         busy = state in (State.CONNECTING, State.DISCONNECTING, State.BENCHMARKING)
         self._retest.setEnabled(not busy)
+        # Toggling mid-restart would start a second worker against the same winws,
+        # so the switch is frozen for as long as one is in flight.
+        self._cb_game.setEnabled(not busy)
         self._act_toggle.setText(tr("Disconnect") if state is State.ACTIVE else tr("Connect"))
         self._act_toggle.setEnabled(not busy)
 
@@ -836,13 +914,17 @@ class MainWindow(QWidget):
 
         if self._controller.telegram.running:
             telegram = f"MTProto 127.0.0.1:{self._controller.telegram.port}"
+            if self._controller.telegram.fake_tls_domain:
+                telegram += tr(" · disguised as HTTPS")
         else:
             telegram = tr("Not running")
         anim.crossfade_text(self._telegram_value, telegram)
 
     @pyqtSlot(str)
     def _on_status_message(self, message: str) -> None:
-        anim.crossfade_text(self._detail, message)
+        # tr() falls back to its argument, so a status built with an f-string
+        # still shows in English rather than going missing.
+        anim.crossfade_text(self._detail, tr(message))
         self._refresh_metrics()
 
     @pyqtSlot(float)
@@ -935,6 +1017,7 @@ class MainWindow(QWidget):
         self._apply_state(self._controller.state)
         self._vpn_tab.restyle()
         self._power.restyle()
+        self._game_glyph.update()
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:

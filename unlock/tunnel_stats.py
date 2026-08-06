@@ -49,7 +49,28 @@ def _read_uapi() -> dict[str, int] | None:
     import ctypes
     from ctypes import wintypes
 
+    # Signatures are declared explicitly: the ctypes default truncates a returned
+    # HANDLE to a 32-bit int, which corrupts every handle above 2 GB on 64-bit
+    # Windows and makes the INVALID_HANDLE_VALUE comparison below unreliable.
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.WriteFile.argtypes = [
+        wintypes.HANDLE, wintypes.LPCVOID, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID,
+    ]
+    kernel32.WriteFile.restype = wintypes.BOOL
+    kernel32.ReadFile.argtypes = [
+        wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID,
+    ]
+    kernel32.ReadFile.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
     GENERIC_READ, GENERIC_WRITE = 0x80000000, 0x40000000
     OPEN_EXISTING = 3
     INVALID_HANDLE = ctypes.c_void_p(-1).value
@@ -57,7 +78,7 @@ def _read_uapi() -> dict[str, int] | None:
     handle = kernel32.CreateFileW(
         _PIPE, GENERIC_READ | GENERIC_WRITE, 0, None, OPEN_EXISTING, 0, None
     )
-    if handle == INVALID_HANDLE:
+    if not handle or handle == INVALID_HANDLE:
         return None
     try:
         written = wintypes.DWORD()

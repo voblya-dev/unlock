@@ -6,8 +6,18 @@ obfuscated init packet, then reaches that DC over a ``wss://`` connection to
 Telegram's own domains. Nothing has to be hosted: there is no third-party relay,
 and Cloudflare / plain-TCP fallbacks are built into the engine.
 
-Telegram Desktop is pointed at it with a ``tg://proxy?...&secret=dd<hex>`` link,
-which the client accepts in one click.
+Telegram Desktop is pointed at it with a ``tg://proxy?...`` link, which the client
+accepts in one click. Two handshake flavours, picked by ``fake_tls``:
+
+* ``ee`` — the client opens with a forged TLS ClientHello and the whole MTProto
+  stream is carried inside TLS records, so the connection is shaped like an
+  ordinary HTTPS session. A client that fails the ClientHello HMAC is reverse
+  proxied to a real masking domain, so probing the port finds a plain website.
+* ``dd`` — padded intermediate, the older obfuscated-only mode.
+
+The two are mutually exclusive: with masking on, the engine answers a non-TLS
+client with an HTTP redirect instead of an MTProto handshake, so switching modes
+means handing Telegram a new link.
 
 Runs on its own thread with its own asyncio loop so the Qt event loop is never
 blocked.
@@ -21,7 +31,7 @@ import socket
 import threading
 import time
 
-from .constants import TELEGRAM_PROXY_PORT
+from .constants import TELEGRAM_FAKE_TLS_DOMAIN, TELEGRAM_PROXY_PORT
 from .logger import get_logger
 from .tgwsproxy import tg_ws_proxy
 from .tgwsproxy.config import proxy_config
@@ -52,6 +62,7 @@ class TelegramProxy:
     def __init__(self, port: int = TELEGRAM_PROXY_PORT) -> None:
         self.port = port
         self.secret: str | None = None
+        self.fake_tls_domain: str = ""
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop_event: asyncio.Event | None = None
@@ -72,7 +83,12 @@ class TelegramProxy:
         """tg:// link that makes Telegram Desktop adopt this proxy."""
         if self.secret is None:
             return None
-        return f"tg://proxy?server=127.0.0.1&port={self.port}&secret=dd{self.secret}"
+        base = f"tg://proxy?server=127.0.0.1&port={self.port}&secret="
+        if self.fake_tls_domain:
+            # ee = fake TLS. The masking domain is appended to the secret as hex;
+            # the client needs it to build a ClientHello with a matching SNI.
+            return f"{base}ee{self.secret}{self.fake_tls_domain.encode('ascii').hex()}"
+        return f"{base}dd{self.secret}"
 
     # ------------------------------------------------------------- control
 
@@ -98,7 +114,7 @@ class TelegramProxy:
         ws_pool.reset()
         cf_worker_pool.reset()
 
-    def start(self, secret: str | None = None) -> None:
+    def start(self, secret: str | None = None, *, fake_tls: bool = True) -> None:
         """Bind the listener. A caller-supplied secret keeps the tg:// link
         stable across restarts, so Telegram recognises the proxy it already has
         instead of being offered a new one every time."""
@@ -109,15 +125,21 @@ class TelegramProxy:
             raise TelegramProxyError(f"Port {self.port} is already in use")
 
         self.secret = secret or os.urandom(16).hex()
+        self.fake_tls_domain = TELEGRAM_FAKE_TLS_DOMAIN if fake_tls else ""
         proxy_config.host = "127.0.0.1"
         proxy_config.port = self.port
         proxy_config.secret = self.secret
+        proxy_config.fake_tls_domain = self.fake_tls_domain
 
         self._error = None
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         self._wait_until_listening()
-        log.info("Telegram MTProto proxy on 127.0.0.1:%s", self.port)
+        log.info(
+            "Telegram MTProto proxy on 127.0.0.1:%s (%s)",
+            self.port,
+            f"fake TLS as {self.fake_tls_domain}" if self.fake_tls_domain else "obfuscated",
+        )
 
     def stop(self) -> None:
         if self._loop is not None and self._stop_event is not None:
@@ -130,6 +152,7 @@ class TelegramProxy:
         self._loop = None
         self._stop_event = None
         self.secret = None
+        self.fake_tls_domain = ""
         log.info("Telegram proxy stopped")
 
     # ------------------------------------------------------------- internals

@@ -54,6 +54,15 @@ _RU: dict[str, str] = {
         "Сначала включите обход — мост не запущен.",
     "Telegram bridge": "Мост Telegram",    "Not running": "Не запущен",
     "Re-test / Benchmark": "Перетестировать",
+    # --- game mode
+    "Game mode": "Игровой режим",
+    "Voice chat, matchmaking and game traffic go through the bypass too.":
+        "Голосовой чат, подбор игр и игровой трафик тоже идут через обход.",
+    "Off — only web ports are filtered. Turn on if games or voice chat lag.":
+        "Выключен — фильтруются только веб-порты. Включите, если лагают игры или голосовой чат.",
+    "Widens the filter to the game port range (1024-65535).":
+        "Расширяет фильтр на игровой диапазон портов (1024-65535).",
+    "Applying the new filter…": "Применяем новый фильтр…",
     # --- settings: general
     "General": "Общие",
     "Startup": "Запуск",
@@ -109,6 +118,14 @@ _RU: dict[str, str] = {
         "При подключении запущенному Telegram предлагается включить локальный прокси.",
     "Watches for Telegram and offers it the local proxy, including after a restart.":
         "Следит за Telegram и передаёт ему локальный прокси, в том числе после перезапуска.",
+    "Disguise the Telegram proxy as HTTPS": "Маскировать прокси Telegram под HTTPS",
+    "Fake TLS: the handshake looks like an ordinary HTTPS session, and "
+    "anything else that connects to the port sees a real website.":
+        "Fake TLS: рукопожатие выглядит как обычная HTTPS-сессия, а всё "
+        "остальное, что подключится к порту, увидит настоящий сайт.",
+    " · disguised as HTTPS": " · под видом HTTPS",
+    "Telegram proxy updated — confirm the new prompt":
+        "Прокси Telegram обновлён — подтвердите новый запрос",
     "Telegram is configured for you: while the bypass is on, the proxy is "
     "offered to the client as soon as it is running — confirm the prompt once.":
         "Telegram настраивается сам: пока обход включён, прокси предлагается "

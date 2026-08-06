@@ -24,7 +24,7 @@ from .sounds import connected as _sound_connected
 from .sounds import disconnected as _sound_disconnected
 from .sounds import failed as _sound_failed
 from .strategies import find_strategy, load_strategies
-from .system_proxy import SystemProxy
+from .system_proxy import SystemProxy, restore_orphaned
 from .telegram_proxy import TelegramProxy, TelegramProxyError
 from .tunnel_stats import TunnelStats
 from .vpn_engine import VpnEngine, VpnEngineError
@@ -75,6 +75,25 @@ class DisconnectWorker(QThread):
     def run(self) -> None:
         self._c._stop_engines()
         self.finished_ok.emit()
+
+
+class DpiRestartWorker(QThread):
+    """Re-launches winws so a changed argument vector takes effect."""
+
+    finished_ok = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, controller: "Controller") -> None:
+        super().__init__()
+        self._c = controller
+
+    def run(self) -> None:
+        try:
+            self._c._restart_dpi_blocking()
+            self.finished_ok.emit(self._c.active_summary())
+        except (DpiEngineError, RuntimeError) as exc:
+            self._c._stop_engines()
+            self.failed.emit(str(exc))
 
 
 class VpnConnectWorker(QThread):
@@ -144,7 +163,7 @@ class BenchmarkWorker(QThread):
             report = self._benchmark.run(
                 test_dpi=self._c.config.get("enable_dpi", True),
                 test_telegram=self._c.config.get("enable_telegram", True),
-                strategies=load_strategies(),
+                strategies=load_strategies(self._c.game_filter),
                 progress=lambda pct, msg: self.progress.emit(pct, msg),
             )
             self.finished_ok.emit(report)
@@ -346,6 +365,10 @@ class Controller(QObject):
         self.vpn = VpnEngine()
         self.awg = AwgEngine()
         self._system_proxy = SystemProxy()
+        # A previous run that was killed rather than closed leaves the machine
+        # pointed at a local port nothing listens on, which presents as the whole
+        # network being down.
+        restore_orphaned()
         self._state = State.IDLE
         self._vpn_state = State.IDLE
         self._latency_worker: LatencyWorker | None = None
@@ -398,8 +421,108 @@ class Controller(QObject):
             self.vpn_state_changed.emit(state)
 
     @property
-    def needs_benchmark(self) -> bool:
-        # The user cancelled testing and takes over strategy choice by hand.
+    def game_filter(self) -> bool:
+        """Whether the game port range is folded into the winws filter.
+
+        Off by default: it widens the filter from a handful of web ports to
+        1024-65535, so winws inspects far more traffic. Worth it only for a user
+        who actually plays something that is being throttled.
+        """
+        return bool(self.config.get("game_filter", False))
+
+    def set_game_filter(self, enabled: bool) -> bool:
+        """Persist the setting. Returns True when the engine has to be restarted.
+
+        The port range is baked into the argument vector winws was launched with,
+        so a running engine keeps the old filter until it is restarted.
+        """
+        if enabled == self.game_filter:
+            return False
+        self.config.set("game_filter", enabled)
+        log.info("Game filter %s", "on" if enabled else "off")
+        return self.dpi.running
+
+    @property
+    def fake_tls(self) -> bool:
+        return bool(self.config.get("telegram_fake_tls", True))
+
+    def set_fake_tls(self, enabled: bool) -> bool:
+        """Switch the MTProto handshake flavour, restarting the bridge if it is up.
+
+        The secret prefix changes with the mode, so the old tg:// link stops
+        working and Telegram has to be handed the new one.
+
+        Returns the mode actually in force, which is the old one if the restart
+        failed: rebinding can lose a race with the listener it just closed, and
+        silently leaving the bridge down while the UI still reads ACTIVE would be
+        worse than refusing the change.
+        """
+        if enabled == self.fake_tls:
+            return enabled
+        if not self.telegram.running:
+            self.config.set("telegram_fake_tls", enabled)
+            log.info("Telegram fake TLS %s", "on" if enabled else "off")
+            return enabled
+
+        try:
+            self.telegram.start(self._telegram_secret(), fake_tls=enabled)
+        except TelegramProxyError as exc:
+            log.warning("Could not switch fake TLS: %s", exc)
+            # Either way the config was never written, so the old mode is what
+            # the switch has to show — even when the bridge did not come back
+            # and the state is now ERROR.
+            if self._restore_telegram(enabled):
+                self.error.emit(f"Could not switch the Telegram handshake: {exc}")
+            return not enabled
+
+        self.config.set("telegram_fake_tls", enabled)
+        log.info("Telegram fake TLS %s", "on" if enabled else "off")
+        self.status_message.emit("Telegram proxy updated — confirm the new prompt")
+        self.offer_telegram_proxy()
+        return enabled
+
+    def _restore_telegram(self, attempted: bool) -> bool:
+        """Bring the bridge back up in the previous mode after a failed switch.
+
+        Returns True when the old mode is running again. When it cannot be, the
+        engines are stopped and the state goes to ERROR rather than leaving a
+        dead bridge behind an ACTIVE button.
+        """
+        try:
+            self.telegram.start(self._telegram_secret(), fake_tls=not attempted)
+        except TelegramProxyError as exc:
+            log.error("Telegram bridge could not be restarted: %s", exc)
+            self._stop_engines()
+            self._on_connect_failed(f"Telegram bridge stopped: {exc}")
+            return False
+        return True
+
+    def restart_dpi(self) -> None:
+        """Re-launch winws so a changed argument vector takes effect."""
+        if not self.dpi.running:
+            return
+        self._set_state(State.CONNECTING)
+        self.status_message.emit("Applying the new filter…")
+
+        worker = DpiRestartWorker(self)
+        worker.finished_ok.connect(self._on_connected)
+        worker.failed.connect(self._on_connect_failed)
+        self._track(worker)
+        worker.start()
+
+    def _restart_dpi_blocking(self) -> None:
+        self.dpi.stop()
+        name = self.config.get("dpi_strategy")
+        strategy = find_strategy(name, self.game_filter) if name else None
+        if strategy is None:
+            available = load_strategies(self.game_filter)
+            if not available:
+                raise RuntimeError("No winws configs found in bin/zapret/configs.")
+            strategy = available[0]
+        self.dpi.start(strategy)
+
+    @property
+    def needs_benchmark(self) -> bool:        # The user cancelled testing and takes over strategy choice by hand.
         if self.config.get("benchmark_skipped"):
             return False
         if not self.config.get("first_run_done"):
@@ -444,11 +567,15 @@ class Controller(QObject):
             self.connect()
 
     def connect(self) -> None:
-        if self._aborted_benchmark is not None and self._aborted_benchmark.isRunning():
-            # An aborted run still owns winws until its current probe returns;
-            # starting the engine now would fight it for the filter driver.
-            self.error.emit("Still finishing the cancelled test — try again in a moment.")
-            return
+        if self._aborted_benchmark is not None:
+            if self._aborted_benchmark.isRunning():
+                # An aborted run still owns winws until its current probe returns;
+                # starting the engine now would fight it for the filter driver.
+                self.error.emit("Still finishing the cancelled test — try again in a moment.")
+                return
+            # It has since finished, so the guard has to be dropped or it would
+            # block every later connect for the lifetime of the process.
+            self._aborted_benchmark = None
         enabled = any(
             self.config.get(key, default)
             for key, default in (("enable_dpi", True), ("enable_telegram", True))
@@ -574,11 +701,11 @@ class Controller(QObject):
 
         if self.config.get("enable_dpi", True):
             name = self.config.get("dpi_strategy")
-            strategy = find_strategy(name) if name else None
+            strategy = find_strategy(name, self.game_filter) if name else None
             if strategy is None:
                 # No benchmark yet: fall back to the pack's default config so the
                 # button still does something useful.
-                available = load_strategies()
+                available = load_strategies(self.game_filter)
                 if not available:
                     raise RuntimeError(
                         "No winws configs found in bin/zapret/configs."
@@ -589,7 +716,10 @@ class Controller(QObject):
             started.append(f"DPI ({strategy.name})")
 
         if self.config.get("enable_telegram", True):
-            self.telegram.start(self._telegram_secret())
+            self.telegram.start(
+                self._telegram_secret(),
+                fake_tls=self.config.get("telegram_fake_tls", True),
+            )
             started.append("Telegram bridge")
             if self.config.get("telegram_auto_proxy", True):
                 self.offer_telegram_proxy()
@@ -763,11 +893,14 @@ class Controller(QObject):
         _sound_connected()
 
     def _on_connect_failed(self, message: str) -> None:
+        # Left in ERROR rather than bounced back to IDLE: the two transitions used
+        # to happen in this one slot, so no UI could ever observe the failure and
+        # the button looked as if nothing had been pressed. The next connect()
+        # leaves it.
         self._set_state(State.ERROR)
         self.status_message.emit("Failed to start")
         _sound_failed()
         self.error.emit(message)
-        self._set_state(State.IDLE)
 
     def _on_disconnected(self) -> None:
         self._set_state(State.IDLE)

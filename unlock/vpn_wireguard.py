@@ -93,6 +93,20 @@ def parse_conf(text: str, name: str = "") -> Profile:
     return _build(interface, peer, name)
 
 
+def _default_allowed(addresses: list[str]) -> list[str]:
+    """Catch-all routes for a config that named none, matching the address family.
+
+    ``::/0`` is only added when the interface actually has an IPv6 address:
+    claiming the whole v6 space without one routes every v6 packet into an
+    interface that cannot emit it, so a dual-stack machine black-holes the
+    traffic it would otherwise have sent over the physical link.
+    """
+    allowed = ["0.0.0.0/0"]
+    if any(":" in address for address in addresses):
+        allowed.append("::/0")
+    return allowed
+
+
 def _build(interface: dict, peer: dict, name: str) -> Profile:
     def pick(source: dict, *names: str) -> str:
         for key in names:
@@ -109,7 +123,7 @@ def _build(interface: dict, peer: dict, name: str) -> Profile:
 
     host, port = _endpoint(endpoint)
     addresses = _split_list(pick(interface, "Address")) or ["10.0.0.2/32"]
-    allowed = _split_list(pick(peer, "AllowedIPs")) or ["0.0.0.0/0", "::/0"]
+    allowed = _split_list(pick(peer, "AllowedIPs")) or _default_allowed(addresses)
 
     settings: dict = {
         "type": "wireguard",

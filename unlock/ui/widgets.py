@@ -1,9 +1,11 @@
-"""Custom input widgets: a wheel-proof combo box and an animated pill switch."""
+"""Custom input widgets: a wheel-proof combo box, an animated pill switch, and a
+gamepad glyph."""
 
 from __future__ import annotations
 
 from PyQt6.QtCore import (
     QEasingCurve,
+    QPointF,
     QPropertyAnimation,
     QRect,
     QRectF,
@@ -164,4 +166,50 @@ class Switch(QCheckBox):
                     | Qt.TextFlag.TextWordWrap
                 ),
                 self.text(),
+            )
+
+
+class GamepadGlyph(QWidget):
+    """Small controller outline that lights up with the accent when active.
+
+    Painted rather than shipped as an asset for the same reason the tray icons
+    are: colour carries the state, so a bitmap would mean one file per palette.
+    """
+
+    def __init__(self, size: int = 30, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._size = size
+        self._active = False
+        self.setFixedSize(size, size)
+
+    def set_active(self, active: bool) -> None:
+        if active != self._active:
+            self._active = active
+            self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        colour = theme.qcolor(theme.ACCENT if self._active else theme.TEXT_FAINT)
+        unit = self._size / 24.0
+        painter.setPen(QPen(colour, max(1.4, 1.6 * unit), cap=Qt.PenCapStyle.RoundCap))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # A wide rounded pill is as much of a controller as reads at this size.
+        body = QRectF(2.5 * unit, 8 * unit, 19 * unit, 9 * unit)
+        painter.drawRoundedRect(body, 4.5 * unit, 4.5 * unit)
+
+        centre_y = body.center().y()
+        pad_x = 8 * unit
+        arm = 2.2 * unit
+        painter.drawLine(QPointF(pad_x - arm, centre_y), QPointF(pad_x + arm, centre_y))
+        painter.drawLine(QPointF(pad_x, centre_y - arm), QPointF(pad_x, centre_y + arm))
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(colour)
+        dot = 2.6 * unit
+        for cx, cy in ((15.3, -1.5), (17.9, 1.5)):
+            painter.drawEllipse(
+                QRectF(cx * unit - dot / 2, centre_y + cy * unit - dot / 2, dot, dot)
             )

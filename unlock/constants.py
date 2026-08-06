@@ -91,6 +91,11 @@ for _d in (DATA_DIR, LOG_DIR):
 # uses, so a user who already has that app is not surprised by a different one.
 TELEGRAM_PROXY_PORT = 1443
 
+# SNI the fake-TLS handshake is dressed as, and the site an unrecognised client
+# gets reverse proxied to. Only ever dialled if something other than Telegram
+# connects to the local port, so it just has to be a real, reachable HTTPS host.
+TELEGRAM_FAKE_TLS_DOMAIN = "www.microsoft.com"
+
 # Local listeners for the user's own VPN profile. sing-box binds both: SOCKS is
 # what the Windows system proxy is pointed at, HTTP is the fallback for apps
 # that ignore a SOCKS setting.
@@ -165,6 +170,13 @@ DEFAULT_CONFIG: dict = {
     # Stable MTProto secret: Telegram recognises the proxy it already has
     # instead of being offered a fresh one after every restart.
     "telegram_secret": None,
+    # Dress the local MTProto handshake as TLS (ee-secret). On by default: it is
+    # the mode Telegram's own clients treat as ordinary HTTPS, and anything that
+    # connects to the port without the right ClientHello sees a real website.
+    "telegram_fake_tls": True,
+    # Fold the game port range into the winws filter. Off by default: it widens
+    # the filter from a handful of web ports to 1024-65535.
+    "game_filter": False,
     "benchmark_results": {},
     "theme": "system",           # system | dark | light
     "accent": "blue",            # key from ui.theme.ACCENTS
