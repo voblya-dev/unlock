@@ -346,6 +346,11 @@ class VpnPingWorker(QThread):
                     time.sleep(0.5)
                     continue
                 self._warmed = True
+                if ms < 0:
+                    # Warmup exhausted while still failing; skip this probe so
+                    # it does not seed the loss window with a guaranteed failure.
+                    time.sleep(self._interval)
+                    continue
 
             self._results.append(ms >= 0)
             del self._results[:-self._WINDOW]

@@ -1067,10 +1067,8 @@ class MainWindow(QWidget):
         self._refresh_metrics()
 
     @pyqtSlot(int)
-    def _on_tab_changed(self, index: int) -> None:
-        page = self._tabs.widget(index)
-        if page is not None and not isinstance(page, QScrollArea):
-            anim.fade_in(page, duration=anim.NORMAL, start=0.25)
+    def _on_tab_changed(self, _index: int) -> None:
+        pass
 
     def _restyle(self) -> None:
         """Re-derive the palette and repaint everything that caches a colour."""
