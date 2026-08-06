@@ -229,7 +229,8 @@ _SWATCH_D = 24  # diameter of each swatch circle
 class _Swatch(QWidget):
     """Single animated colour circle for ColorSwatchPicker."""
 
-    clicked = pyqtSignal()
+    clicked       = pyqtSignal()
+    right_clicked = pyqtSignal()
 
     def __init__(self, color: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -268,6 +269,8 @@ class _Swatch(QWidget):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.right_clicked.emit()
 
     def enterEvent(self, event) -> None:
         if not self._selected:
@@ -384,13 +387,26 @@ class ColorSwatchPicker(QWidget):
     def _add_custom_swatch(self, hex_val: str, *, select: bool, animated: bool = True) -> _Swatch:
         sw = _Swatch(hex_val, self)
         sw.clicked.connect(lambda h=hex_val, s=sw: self._on_custom_clicked(h, s))
+        sw.right_clicked.connect(lambda s=sw: self._remove_custom_swatch(s))
+        sw.setToolTip("Left click — select   |   Right click — remove")
         self._custom_swatches.append(sw)
-        # insert before the '+' button (last item before stretch)
         idx = self._row.count() - 2   # before btn_add and stretch
         self._row.insertWidget(idx, sw)
         if select:
             sw.set_selected(True, animated=animated)
         return sw
+
+    def _remove_custom_swatch(self, swatch: _Swatch) -> None:
+        if swatch not in self._custom_swatches:
+            return
+        was_selected = swatch.color == self._current
+        self._custom_swatches.remove(swatch)
+        self._row.removeWidget(swatch)
+        swatch.deleteLater()
+        if was_selected:
+            # fall back to first preset
+            first_key = next(iter(self._swatches))
+            self._pick_preset(first_key)
 
     def _on_custom_clicked(self, hex_val: str, swatch: _Swatch) -> None:
         # Single click → select; already selected → re-open picker to edit
