@@ -369,6 +369,12 @@ class ColorPickerPopup(QWidget):
     def paintEvent(self, _e) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Clear entire widget to transparent first — without this the Qt
+        # Popup window type fills the background black on Windows.
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+        p.fillRect(self.rect(), Qt.GlobalColor.transparent)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
         s   = _SHADOW
         rct = QRectF(s, s, self.width() - s * 2, self.height() - s * 2)
         for i in range(s, 0, -1):
