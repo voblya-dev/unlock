@@ -31,9 +31,10 @@ from PyQt6.QtWidgets import (
 from .. import autostart, logger, sounds
 from ..constants import APP_NAME, APP_VERSION, CONFIG_PATH, LOG_PATH
 from ..controller import Controller, State
-from ..strategies import load_strategies
+from ..strategies import load_evolved, load_strategies
 from . import anim, i18n, icons, theme
 from .benchmark_dialog import BenchmarkDialog
+from .evolution_dialog import EvolutionDialog
 from .i18n import tr
 from .power_button import PowerButton
 from .vpn_tab import VpnTab
@@ -122,6 +123,7 @@ class MainWindow(QWidget):
         self._quitting = False
         self._shown_once = False
         self._benchmark_dialog: BenchmarkDialog | None = None
+        self._evolution_dialog: EvolutionDialog | None = None
 
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(icons.app_icon())
@@ -585,11 +587,19 @@ class MainWindow(QWidget):
         )
         self._combo_strategy.setMinimumContentsLength(10)
         self._combo_strategy.addItem(tr("Auto (benchmark result)"), None)
-        for strategy in load_strategies():
-            self._combo_strategy.addItem(strategy.name, strategy.name)
+        self._fill_strategy_combo()
         self._combo_strategy.currentIndexChanged.connect(self._on_strategy_picked)
         strategy_row.addWidget(self._combo_strategy, 1)
         engines_layout.addLayout(strategy_row)
+
+        self._evolve = QPushButton(tr("Evolve a strategy for my provider"))
+        self._evolve.setToolTip(tr(
+            "Breeds new configurations from the bundled ones and keeps what works "
+            "best on your connection. Slower than a benchmark, but it can beat "
+            "every preset."
+        ))
+        self._evolve.clicked.connect(self.run_evolution)
+        engines_layout.addWidget(self._evolve)
 
         hint = QLabel(tr(
             "Telegram is configured for you: while the bypass is on, the proxy is "
@@ -714,6 +724,10 @@ class MainWindow(QWidget):
         benchmark.triggered.connect(lambda: self.run_benchmark(first_run=False))
         menu.addAction(benchmark)
 
+        evolve = QAction(tr("Evolve a strategy"), menu)
+        evolve.triggered.connect(self.run_evolution)
+        menu.addAction(evolve)
+
         menu.addSeparator()
         quit_action = QAction(tr("Quit"), menu)
         quit_action.triggered.connect(self.quit_app)
@@ -791,6 +805,9 @@ class MainWindow(QWidget):
         if self._benchmark_dialog is not None:
             self._show_benchmark_dialog()
             return
+        if self._evolution_dialog is not None:
+            self._show_evolution_dialog()
+            return
         dialog = BenchmarkDialog(self._controller, self, first_run=first_run)
         self._benchmark_dialog = dialog
         dialog.finished.connect(self._on_benchmark_dialog_closed)
@@ -811,6 +828,54 @@ class MainWindow(QWidget):
             dialog.deleteLater()
         self._load_settings_into_ui()
         self._refresh_metrics()
+
+    def run_evolution(self) -> None:
+        if self._evolution_dialog is not None:
+            self._show_evolution_dialog()
+            return
+        if self._benchmark_dialog is not None:
+            # Both drive winws; running them together would have them fight over
+            # the filter driver and score each other's traffic.
+            self._show_benchmark_dialog()
+            return
+        dialog = EvolutionDialog(self._controller, self)
+        self._evolution_dialog = dialog
+        dialog.finished.connect(self._on_evolution_dialog_closed)
+        self._show_evolution_dialog()
+
+    def _show_evolution_dialog(self) -> None:
+        dialog = self._evolution_dialog
+        if dialog is None:
+            return
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    @pyqtSlot(int)
+    def _on_evolution_dialog_closed(self, _result: int) -> None:
+        dialog, self._evolution_dialog = self._evolution_dialog, None
+        if dialog is not None:
+            dialog.deleteLater()
+        # The search saves a new strategy, so the picker has to be rebuilt
+        # rather than just re-selected.
+        self._reload_strategy_combo()
+        self._load_settings_into_ui()
+        self._refresh_metrics()
+
+    def _fill_strategy_combo(self) -> None:
+        """Evolved strategies first: a local one beats a preset when it exists."""
+        for strategy in load_evolved():
+            self._combo_strategy.addItem(strategy.name, strategy.name)
+        for strategy in load_strategies():
+            self._combo_strategy.addItem(strategy.name, strategy.name)
+
+    def _reload_strategy_combo(self) -> None:
+        combo = self._combo_strategy
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem(tr("Auto (benchmark result)"), None)
+        self._fill_strategy_combo()
+        combo.blockSignals(False)
 
     def _on_fake_tls_toggled(self, enabled: bool) -> None:
         in_force = self._controller.set_fake_tls(enabled)
@@ -845,6 +910,9 @@ class MainWindow(QWidget):
         if self._benchmark_dialog is not None:
             self._show_benchmark_dialog()
             return
+        if self._evolution_dialog is not None:
+            self._show_evolution_dialog()
+            return
         self._controller.toggle()
 
     def quit_app(self) -> None:
@@ -861,7 +929,9 @@ class MainWindow(QWidget):
     @pyqtSlot(object)
     def _apply_state(self, state: State) -> None:
         headline, detail = (tr(t) for t in _STATE_TEXT[state])
-        if state is State.BENCHMARKING and self._benchmark_dialog is not None:
+        if state is State.BENCHMARKING and (
+            self._benchmark_dialog is not None or self._evolution_dialog is not None
+        ):
             detail = tr("Press the button to reopen the test window")
         anim.crossfade_text(self._headline, headline)
         anim.crossfade_text(self._detail, detail)
@@ -869,6 +939,7 @@ class MainWindow(QWidget):
 
         busy = state in (State.CONNECTING, State.DISCONNECTING, State.BENCHMARKING)
         self._retest.setEnabled(not busy)
+        self._evolve.setEnabled(not busy)
         # Toggling mid-restart would start a second worker against the same winws,
         # so the switch is frozen for as long as one is in flight.
         self._cb_game.setEnabled(not busy)

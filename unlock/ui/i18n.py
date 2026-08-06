@@ -269,6 +269,34 @@ _RU: dict[str, str] = {
     "or update the bundled zapret build.":
         "Ни одна конфигурация ничего не разблокировала. Попробуйте другую сеть "
         "или обновите встроенную сборку zapret.",
+    # --- evolution dialog
+    "Evolving a strategy": "Эволюция стратегии",
+    "Evolving a strategy for your provider": "Эволюция стратегии под ваш провайдер",
+    "Instead of picking the best of the bundled configs, Unlock breeds new "
+    "ones: it starts from those configs, keeps whatever works best against "
+    "your connection and recombines them. This takes a while — the app "
+    "cannot protect you until it finishes.":
+        "Вместо выбора лучшей из встроенных конфигураций Unlock выводит новые: "
+        "берёт существующие как основу, скрещивает их и оставляет то, что лучше "
+        "всего работает на вашем соединении. Это занимает время — до окончания "
+        "поиска обход не будет активен.",
+    "Stop and keep best": "Остановить и сохранить лучшее",
+    "Ends the search after the running test. Whatever it has already "
+    "found is kept — it is never worse than the bundled configs.":
+        "Завершает поиск после текущего теста. Найденное сохраняется — "
+        "результат не хуже встроенных конфигураций.",
+    "Nothing worked on this connection. Try again on a different "
+    "network, or update the bundled zapret build.":
+        "Ничего не сработало на этом соединении. Попробуйте другую сеть "
+        "или обновите встроенную сборку zapret.",
+    "Evolve a strategy for my provider": "Подобрать стратегию под провайдера",
+    "Breeds new configurations from the bundled ones and keeps what works "
+    "best on your connection. Slower than a benchmark, but it can beat "
+    "every preset.":
+        "Создаёт новые конфигурации на основе встроенных и оставляет ту, что "
+        "лучше всего работает на вашем соединении. Медленнее теста, но может "
+        "обойти любой пресет.",
+    "Evolve a strategy": "Подобрать стратегию",
     # --- errors
     "Could not update the Windows startup entry.":
         "Не удалось изменить автозапуск Windows.",

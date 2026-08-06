@@ -18,6 +18,7 @@ from .benchmark import Benchmark, BenchmarkReport
 from .config import Config
 from .constants import TELEGRAM_PROXY_PORT
 from .dpi_engine import DpiEngine, DpiEngineError, is_admin
+from .evolution import Evolution, EvolutionReport
 from .logger import get_logger
 from . import sounds
 from .sounds import connected as _sound_connected
@@ -169,6 +170,30 @@ class BenchmarkWorker(QThread):
             self.finished_ok.emit(report)
         except Exception as exc:                      # noqa: BLE001 - surface anything
             log.exception("Benchmark crashed")
+            self.failed.emit(str(exc))
+
+
+class EvolutionWorker(QThread):
+    progress = pyqtSignal(int, str)
+    finished_ok = pyqtSignal(object)       # EvolutionReport
+    failed = pyqtSignal(str)
+
+    def __init__(self, controller: "Controller") -> None:
+        super().__init__()
+        self._c = controller
+        self._evolution = Evolution(controller.dpi, game_filter=controller.game_filter)
+
+    def cancel(self) -> None:
+        self._evolution.cancel()
+
+    def run(self) -> None:
+        try:
+            report = self._evolution.run(
+                progress=lambda pct, msg: self.progress.emit(pct, msg),
+            )
+            self.finished_ok.emit(report)
+        except Exception as exc:                      # noqa: BLE001 - surface anything
+            log.exception("Evolution crashed")
             self.failed.emit(str(exc))
 
 
@@ -354,6 +379,8 @@ class Controller(QObject):
     stats_changed = pyqtSignal(object)      # tunnel_stats.Snapshot | None
     benchmark_progress = pyqtSignal(int, str)
     benchmark_done = pyqtSignal(object)     # BenchmarkReport
+    evolution_progress = pyqtSignal(int, str)
+    evolution_done = pyqtSignal(object)     # EvolutionReport
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
@@ -376,6 +403,7 @@ class Controller(QObject):
         self._tg_watcher: telegram_client.ProxyWatcher | None = None
         self._benchmark_worker: BenchmarkWorker | None = None
         self._aborted_benchmark: BenchmarkWorker | None = None
+        self._evolution_worker: EvolutionWorker | None = None
         self._shut_down = False
         self._workers: list[QThread] = []
 
@@ -676,6 +704,69 @@ class Controller(QObject):
         self.config.update({"first_run_done": True, "benchmark_skipped": True})
         self._set_state(State.IDLE)
         self.status_message.emit("Testing cancelled — pick a strategy in Settings")
+
+    def run_evolution(self) -> EvolutionWorker:
+        """Search for a strategy tuned to this link instead of picking a preset."""
+        self._stop_latency_monitor()
+        self._stop_engines()
+        self._set_state(State.BENCHMARKING)
+
+        worker = EvolutionWorker(self)
+        worker.progress.connect(self.evolution_progress)
+        worker.finished_ok.connect(self._on_evolution_done)
+        worker.failed.connect(self._on_evolution_failed)
+        self._evolution_worker = worker
+        self._track(worker)
+        worker.start()
+        return worker
+
+    def abort_evolution(self) -> None:
+        """Stop the search and keep whatever it had already confirmed.
+
+        Unlike the benchmark, a partial search is still useful: generation zero
+        is the preset sweep, so anything it found is at least as good as what a
+        benchmark would have chosen. The worker finishes its current candidate
+        and reports normally.
+        """
+        if self._evolution_worker is None:
+            return
+        self._evolution_worker.cancel()
+        self.status_message.emit("Finishing the current test…")
+
+    def _on_evolution_done(self, report: EvolutionReport) -> None:
+        if self.sender() is not self._evolution_worker:
+            log.info("Discarding evolution report from a stale run")
+            return
+        self._evolution_worker = None
+
+        updates: dict = {
+            "first_run_done": True,
+            "benchmark_skipped": False,
+            "last_benchmark_utc": datetime.now(timezone.utc).isoformat(),
+            "evolution_results": report.as_dict(),
+        }
+        if report.saved_name:
+            updates["dpi_strategy"] = report.saved_name
+        self.config.update(updates)
+
+        self._set_state(State.IDLE)
+        best = report.best
+        if report.saved_name and best:
+            verdict = "beats every preset" if report.improved else "matches the best preset"
+            self.status_message.emit(
+                f"Evolved strategy: {best.passed}/{best.total} probes, "
+                f"{best.latency_ms:.0f} ms — {verdict}"
+            )
+        else:
+            self.status_message.emit("The search found nothing that works here")
+        self.evolution_done.emit(report)
+
+    def _on_evolution_failed(self, message: str) -> None:
+        if self.sender() is not self._evolution_worker:
+            return
+        self._evolution_worker = None
+        self._set_state(State.IDLE)
+        self.error.emit(f"Strategy search failed: {message}")
 
     def shutdown(self) -> None:
         if self._shut_down:  # closeEvent and main() both call this
