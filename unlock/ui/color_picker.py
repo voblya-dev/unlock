@@ -13,14 +13,13 @@ from PyQt6.QtGui import (
     QRegularExpressionValidator,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from . import theme
 
 _W       = 300
-_SHADOW  = 16     # transparent margin around card for shadow
 _PAD     = 16
 _SQ_W    = _W - _PAD * 2
 _SQ_H    = 210
@@ -186,7 +185,7 @@ class ColorPickerPopup(QWidget):
     def __init__(self, initial: QColor, parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Popup)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedWidth(_W + _SHADOW * 2)
+        self.setFixedWidth(_W)
 
         h = initial.hsvHueF()
         self._h = h if h >= 0 else 0.0
@@ -202,11 +201,18 @@ class ColorPickerPopup(QWidget):
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(_SHADOW, _SHADOW, _SHADOW, _SHADOW)
+        outer.setContentsMargins(0, 0, 0, 0)
 
         self._card = QWidget()
         self._card.setObjectName("colorPickerCard")
         self._card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        shadow = QGraphicsDropShadowEffect(self._card)
+        shadow.setBlurRadius(28)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(0, 0, 0, 120))
+        self._card.setGraphicsEffect(shadow)
+
         outer.addWidget(self._card)
 
         lay = QVBoxLayout(self._card)
@@ -363,29 +369,6 @@ class ColorPickerPopup(QWidget):
                     stop:0 {theme.ACCENT_DIM}, stop:1 {accent});
             }}
         """)
-
-    # ── shadow painted on the transparent outer widget ────────────────────────
-
-    def paintEvent(self, _e) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # Clear entire widget to transparent first — without this the Qt
-        # Popup window type fills the background black on Windows.
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-        p.fillRect(self.rect(), Qt.GlobalColor.transparent)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-
-        s   = _SHADOW
-        rct = QRectF(s, s, self.width() - s * 2, self.height() - s * 2)
-        for i in range(s, 0, -1):
-            alpha = int(72 * (1 - i / s) ** 1.8)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(0, 0, 0, alpha))
-            p.drawRoundedRect(
-                QRectF(rct.x() - i * 0.3, rct.y() + i * 0.6,
-                       rct.width() + i * 0.6, rct.height() + i * 0.8),
-                _CORNER + i * 0.5, _CORNER + i * 0.5,
-            )
 
     # ── sync ──────────────────────────────────────────────────────────────────
 
