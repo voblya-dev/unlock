@@ -38,7 +38,7 @@ from .evolution_dialog import EvolutionDialog
 from .i18n import tr
 from .power_button import PowerButton
 from .vpn_tab import VpnTab
-from .widgets import GamepadGlyph, NoScrollComboBox, Switch
+from .widgets import ColorSwatchPicker, GamepadGlyph, NoScrollComboBox, Switch
 
 log = logger.get_logger("ui")
 
@@ -399,11 +399,9 @@ class MainWindow(QWidget):
         self._combo_theme.currentIndexChanged.connect(self._on_theme_picked)
         row(tr("Theme"), self._combo_theme)
 
-        self._combo_accent = NoScrollComboBox()
-        for key in theme.ACCENTS:
-            self._combo_accent.addItem(tr(key), key)
-        self._combo_accent.currentIndexChanged.connect(self._on_accent_picked)
-        row(tr("Accent"), self._combo_accent)
+        self._swatch_accent = ColorSwatchPicker()
+        self._swatch_accent.accent_changed.connect(self._on_accent_picked)
+        row(tr("Accent"), self._swatch_accent)
 
         self._combo_language = NoScrollComboBox()
         self._combo_language.addItem(tr("Follow Windows"), i18n.SYSTEM)
@@ -787,7 +785,7 @@ class MainWindow(QWidget):
         self._select_combo(self._combo_retest, int(cfg.get("auto_retest_days") or 0))
         self._cb_vpn_proxy.setEnabled(not cfg.get("vpn_tun", True))
         self._select_combo(self._combo_theme, cfg.get("theme", theme.SYSTEM))
-        self._select_combo(self._combo_accent, cfg.get("accent", theme.DEFAULT_ACCENT))
+        self._swatch_accent.set_accent(cfg.get("accent", theme.DEFAULT_ACCENT))
         self._select_combo(self._combo_language, cfg.get("language", i18n.SYSTEM))
         self._select_combo(self._combo_strategy, cfg.get("dpi_strategy"))
         self._refresh_game_card()
@@ -1038,8 +1036,8 @@ class MainWindow(QWidget):
         self._controller.config.set("theme", self._combo_theme.currentData())
         self._restyle()
 
-    def _on_accent_picked(self, _index: int) -> None:
-        self._controller.config.set("accent", self._combo_accent.currentData())
+    def _on_accent_picked(self, value: str) -> None:
+        self._controller.config.set("accent", value)
         self._restyle()
 
     def _on_language_picked(self, _index: int) -> None:

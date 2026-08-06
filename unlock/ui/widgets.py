@@ -1,5 +1,5 @@
-"""Custom input widgets: a wheel-proof combo box, an animated pill switch, and a
-gamepad glyph."""
+"""Custom input widgets: a wheel-proof combo box, an animated pill switch, a
+gamepad glyph, and a colour-swatch accent picker."""
 
 from __future__ import annotations
 
@@ -12,9 +12,18 @@ from PyQt6.QtCore import (
     QSize,
     Qt,
     pyqtProperty,
+    pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QSizePolicy, QWidget
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QHBoxLayout,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 from . import anim, theme
 
@@ -213,3 +222,179 @@ class GamepadGlyph(QWidget):
             painter.drawEllipse(
                 QRectF(cx * unit - dot / 2, centre_y + cy * unit - dot / 2, dot, dot)
             )
+
+
+_SWATCH_D = 24  # diameter of each swatch circle
+
+
+class _Swatch(QWidget):
+    """Single animated colour circle for ColorSwatchPicker."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, color: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.color = color
+        self._selected = False
+        self._scale = 1.0
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(_SWATCH_D + 8, _SWATCH_D + 8)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+
+        self._anim = QPropertyAnimation(self, b"scale", self)
+        self._anim.setDuration(200)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutBack)
+
+    def _get_scale(self) -> float:
+        return self._scale
+
+    def _set_scale(self, v: float) -> None:
+        self._scale = v
+        self.update()
+
+    scale = pyqtProperty(float, fget=_get_scale, fset=_set_scale)
+
+    def set_selected(self, selected: bool, animated: bool = True) -> None:
+        self._selected = selected
+        target = 1.15 if selected else 1.0
+        if animated:
+            self._anim.stop()
+            self._anim.setStartValue(self._scale)
+            self._anim.setEndValue(target)
+            self._anim.start()
+        else:
+            self._scale = target
+            self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+
+    def enterEvent(self, event) -> None:
+        if not self._selected:
+            self._anim.stop()
+            self._anim.setStartValue(self._scale)
+            self._anim.setEndValue(1.08)
+            self._anim.start()
+
+    def leaveEvent(self, event) -> None:
+        if not self._selected:
+            self._anim.stop()
+            self._anim.setStartValue(self._scale)
+            self._anim.setEndValue(1.0)
+            self._anim.start()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        cx = self.width() / 2
+        cy = self.height() / 2
+        r = (_SWATCH_D / 2) * self._scale
+
+        fill = QColor(self.color)
+        if self._selected:
+            # White ring around selected swatch
+            ring_r = r + 2.5
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.TEXT))
+            painter.drawEllipse(QRectF(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2))
+            # Slight gap
+            gap_r = r + 1.0
+            painter.setBrush(QColor(theme.BG))
+            painter.drawEllipse(QRectF(cx - gap_r, cy - gap_r, gap_r * 2, gap_r * 2))
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(fill)
+        painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+
+
+class ColorSwatchPicker(QWidget):
+    """Row of preset accent swatches + a '+' button for a custom hex colour.
+
+    Emits ``accent_changed(str)`` with either a named key from ``theme.ACCENTS``
+    or a '#rrggbb' hex string.
+    """
+
+    accent_changed = pyqtSignal(str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._current: str = ""
+        self._swatches: dict[str, _Swatch] = {}
+        self._custom_color: str = ""
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+
+        for key, shades in theme.ACCENTS.items():
+            hex_color = shades["dark"][0]
+            sw = _Swatch(hex_color, self)
+            sw.clicked.connect(lambda k=key: self._pick_preset(k))
+            self._swatches[key] = sw
+            row.addWidget(sw)
+
+        # Custom colour swatch — hidden until user picks one
+        self._custom_swatch = _Swatch("#888888", self)
+        self._custom_swatch.setVisible(False)
+        self._custom_swatch.clicked.connect(self._pick_custom)
+        row.addWidget(self._custom_swatch)
+
+        self._btn_custom = QPushButton("+")
+        self._btn_custom.setFixedSize(_SWATCH_D + 8, _SWATCH_D + 8)
+        self._btn_custom.setToolTip("Custom colour")
+        self._btn_custom.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_custom.clicked.connect(self._pick_custom)
+        row.addWidget(self._btn_custom)
+
+        row.addStretch(1)
+
+    def current_accent(self) -> str:
+        return self._current
+
+    def set_accent(self, value: str) -> None:
+        """Select by named key or hex string without emitting accent_changed."""
+        self._current = value
+        is_custom = theme.is_custom_hex(value)
+        for key, sw in self._swatches.items():
+            sw.set_selected(not is_custom and key == value, animated=False)
+        if is_custom:
+            self._custom_color = value
+            self._custom_swatch.color = value
+            self._custom_swatch.setVisible(True)
+            self._custom_swatch.set_selected(True, animated=False)
+        else:
+            self._custom_swatch.set_selected(False, animated=False)
+
+    def _pick_preset(self, key: str) -> None:
+        if self._current == key:
+            return
+        prev = self._current
+        self._current = key
+        for k, sw in self._swatches.items():
+            sw.set_selected(k == key)
+        self._custom_swatch.set_selected(False)
+        _ = prev
+        self.accent_changed.emit(key)
+
+    def _pick_custom(self) -> None:
+        initial = QColor(self._custom_color) if self._custom_color else QColor(theme.ACCENT)
+        dialog = QColorDialog(initial, self)
+        dialog.setWindowTitle("Custom accent")
+        dialog.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, False)
+        if dialog.exec() != QColorDialog.DialogCode.Accepted:
+            return
+        color = dialog.selectedColor()
+        if not color.isValid():
+            return
+        hex_val = color.name()  # '#rrggbb'
+        self._custom_color = hex_val
+        self._custom_swatch.color = hex_val
+        self._custom_swatch.setVisible(True)
+        self._current = hex_val
+        for sw in self._swatches.values():
+            sw.set_selected(False)
+        self._custom_swatch.set_selected(True)
+        self._btn_custom.setText("+")
+        self.accent_changed.emit(hex_val)

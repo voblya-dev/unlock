@@ -84,6 +84,14 @@ _mode = DARK
 _accent = DEFAULT_ACCENT
 
 
+def _darken_hex(hex_str: str, factor: float = 0.76) -> str:
+    h = hex_str.lstrip("#")
+    r = round(int(h[0:2], 16) * factor)
+    g = round(int(h[2:4], 16) * factor)
+    b = round(int(h[4:6], 16) * factor)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def windows_prefers_dark() -> bool:
     """True when the Windows app mode is dark. Defaults to dark off-Windows."""
     if sys.platform != "win32":
@@ -133,16 +141,27 @@ def qcolor(value: str) -> "QColor":
     return QColor(text)
 
 
+def is_custom_hex(value: str) -> bool:
+    """True for a #rrggbb / #rgb user-supplied colour, false for a named accent key."""
+    import re
+    return bool(re.fullmatch(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", value.strip()))
+
+
 def apply(preference: str = SYSTEM, accent: str = DEFAULT_ACCENT) -> str:
     """Rebind the palette globals and rebuild STYLESHEET. Returns the mode used."""
     global _mode, _accent
     _mode = resolve_mode(preference)
-    _accent = accent if accent in ACCENTS else DEFAULT_ACCENT
 
     values = dict(_PALETTES[_mode])
-    main, dim = ACCENTS[_accent][_mode]
-    values["ACCENT"] = main
-    values["ACCENT_DIM"] = dim
+    if is_custom_hex(accent):
+        _accent = accent
+        values["ACCENT"] = accent
+        values["ACCENT_DIM"] = _darken_hex(accent)
+    else:
+        _accent = accent if accent in ACCENTS else DEFAULT_ACCENT
+        main, dim = ACCENTS[_accent][_mode]
+        values["ACCENT"] = main
+        values["ACCENT_DIM"] = dim
 
     globals().update(values)
     globals()["STYLESHEET"] = _build_stylesheet()
