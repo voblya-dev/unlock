@@ -309,8 +309,51 @@ class _Swatch(QWidget):
         painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
 
 
+class _PlusButton(_Swatch):
+    """Circle with a '+' painted inside — opens the custom colour dialog."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("#00000000", parent)  # transparent fill until user picks
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        cx = self.width() / 2
+        cy = self.height() / 2
+        r = (_SWATCH_D / 2) * self._scale
+
+        if self._selected and self.color and self.color != "#00000000":
+            # Show picked colour with ring
+            ring_r = r + 2.5
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.TEXT))
+            painter.drawEllipse(QRectF(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2))
+            gap_r = r + 1.0
+            painter.setBrush(QColor(theme.BG))
+            painter.drawEllipse(QRectF(cx - gap_r, cy - gap_r, gap_r * 2, gap_r * 2))
+            painter.setBrush(QColor(self.color))
+            painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+            return
+
+        # Dashed border circle
+        border_color = QColor(theme.TEXT_FAINT)
+        pen = QPen(border_color, 1.5, Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+
+        # Plus sign
+        arm = r * 0.38
+        pen2 = QPen(QColor(theme.TEXT_MUTED), 1.8, Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen2)
+        painter.drawLine(QPointF(cx - arm, cy), QPointF(cx + arm, cy))
+        painter.drawLine(QPointF(cx, cy - arm), QPointF(cx, cy + arm))
+
+
 class ColorSwatchPicker(QWidget):
-    """Row of preset accent swatches + a '+' button for a custom hex colour.
+    """Row of preset accent swatches + a '+' circle for a custom hex colour.
 
     Emits ``accent_changed(str)`` with either a named key from ``theme.ACCENTS``
     or a '#rrggbb' hex string.
@@ -335,16 +378,8 @@ class ColorSwatchPicker(QWidget):
             self._swatches[key] = sw
             row.addWidget(sw)
 
-        # Custom colour swatch — hidden until user picks one
-        self._custom_swatch = _Swatch("#888888", self)
-        self._custom_swatch.setVisible(False)
-        self._custom_swatch.clicked.connect(self._pick_custom)
-        row.addWidget(self._custom_swatch)
-
-        self._btn_custom = QPushButton("+")
-        self._btn_custom.setFixedSize(_SWATCH_D + 8, _SWATCH_D + 8)
+        self._btn_custom = _PlusButton(self)
         self._btn_custom.setToolTip("Custom colour")
-        self._btn_custom.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_custom.clicked.connect(self._pick_custom)
         row.addWidget(self._btn_custom)
 
@@ -361,40 +396,30 @@ class ColorSwatchPicker(QWidget):
             sw.set_selected(not is_custom and key == value, animated=False)
         if is_custom:
             self._custom_color = value
-            self._custom_swatch.color = value
-            self._custom_swatch.setVisible(True)
-            self._custom_swatch.set_selected(True, animated=False)
+            self._btn_custom.color = value
+            self._btn_custom.set_selected(True, animated=False)
         else:
-            self._custom_swatch.set_selected(False, animated=False)
+            self._btn_custom.set_selected(False, animated=False)
 
     def _pick_preset(self, key: str) -> None:
         if self._current == key:
             return
-        prev = self._current
         self._current = key
         for k, sw in self._swatches.items():
             sw.set_selected(k == key)
-        self._custom_swatch.set_selected(False)
-        _ = prev
+        self._btn_custom.set_selected(False)
         self.accent_changed.emit(key)
 
     def _pick_custom(self) -> None:
         initial = QColor(self._custom_color) if self._custom_color else QColor(theme.ACCENT)
-        dialog = QColorDialog(initial, self)
-        dialog.setWindowTitle("Custom accent")
-        dialog.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, False)
-        if dialog.exec() != QColorDialog.DialogCode.Accepted:
-            return
-        color = dialog.selectedColor()
+        color = QColorDialog.getColor(initial, self, "Custom accent")
         if not color.isValid():
             return
-        hex_val = color.name()  # '#rrggbb'
+        hex_val = color.name()
         self._custom_color = hex_val
-        self._custom_swatch.color = hex_val
-        self._custom_swatch.setVisible(True)
+        self._btn_custom.color = hex_val
         self._current = hex_val
         for sw in self._swatches.values():
             sw.set_selected(False)
-        self._custom_swatch.set_selected(True)
-        self._btn_custom.setText("+")
+        self._btn_custom.set_selected(True)
         self.accent_changed.emit(hex_val)

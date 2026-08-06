@@ -1080,6 +1080,9 @@ class MainWindow(QWidget):
         self.setStyleSheet(theme.STYLESHEET)
         self.setWindowIcon(icons.app_icon())
 
+        # Tray menu also caches the stylesheet — rebuild it so the accent lands there too.
+        self._build_tray_menu()
+
         # Tray icons and the latency label paint from palette constants directly.
         self._apply_state(self._controller.state)
         self._vpn_tab.restyle()
