@@ -17,7 +17,6 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QColorDialog,
     QComboBox,
     QHBoxLayout,
     QPushButton,
@@ -310,40 +309,21 @@ class _Swatch(QWidget):
 
 
 class _PlusButton(_Swatch):
-    """Circle with a '+' painted inside — opens the custom colour dialog."""
+    """Dashed circle with '+' — always stays as the 'add' button."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("#00000000", parent)  # transparent fill until user picks
+        super().__init__("#00000000", parent)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
         cx = self.width() / 2
         cy = self.height() / 2
-        r = (_SWATCH_D / 2) * self._scale
-
-        if self._selected and self.color and self.color != "#00000000":
-            # Show picked colour with ring
-            ring_r = r + 2.5
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(theme.TEXT))
-            painter.drawEllipse(QRectF(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2))
-            gap_r = r + 1.0
-            painter.setBrush(QColor(theme.BG))
-            painter.drawEllipse(QRectF(cx - gap_r, cy - gap_r, gap_r * 2, gap_r * 2))
-            painter.setBrush(QColor(self.color))
-            painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
-            return
-
-        # Dashed border circle
-        border_color = QColor(theme.TEXT_FAINT)
-        pen = QPen(border_color, 1.5, Qt.PenStyle.DashLine)
+        r  = (_SWATCH_D / 2) * self._scale
+        pen = QPen(QColor(theme.TEXT_FAINT), 1.5, Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
-
-        # Plus sign
         arm = r * 0.38
         pen2 = QPen(QColor(theme.TEXT_MUTED), 1.8, Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap)
@@ -353,53 +333,76 @@ class _PlusButton(_Swatch):
 
 
 class ColorSwatchPicker(QWidget):
-    """Row of preset accent swatches + a '+' circle for a custom hex colour.
-
-    Emits ``accent_changed(str)`` with either a named key from ``theme.ACCENTS``
-    or a '#rrggbb' hex string.
-    """
+    """Preset swatches + multiple custom colour circles, each opening a popup picker."""
 
     accent_changed = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current: str = ""
-        self._swatches: dict[str, _Swatch] = {}
-        self._custom_color: str = ""
+        self._swatches: dict[str, _Swatch] = {}   # preset key → swatch
+        self._custom_swatches: list[_Swatch] = []  # hex → swatch (can be many)
+        self._popup = None
 
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self._row.setSpacing(4)
 
         for key, shades in theme.ACCENTS.items():
-            hex_color = shades["dark"][0]
-            sw = _Swatch(hex_color, self)
+            sw = _Swatch(shades["dark"][0], self)
             sw.clicked.connect(lambda k=key: self._pick_preset(k))
             self._swatches[key] = sw
-            row.addWidget(sw)
+            self._row.addWidget(sw)
 
-        self._btn_custom = _PlusButton(self)
-        self._btn_custom.setToolTip("Custom colour")
-        self._btn_custom.clicked.connect(self._pick_custom)
-        row.addWidget(self._btn_custom)
+        self._btn_add = _PlusButton(self)
+        self._btn_add.setToolTip("Add custom colour")
+        self._btn_add.clicked.connect(self._open_picker)
+        self._row.addWidget(self._btn_add)
+        self._row.addStretch(1)
 
-        row.addStretch(1)
+    # ── public ────────────────────────────────────────────────────────────────
 
     def current_accent(self) -> str:
         return self._current
 
     def set_accent(self, value: str) -> None:
-        """Select by named key or hex string without emitting accent_changed."""
         self._current = value
-        is_custom = theme.is_custom_hex(value)
-        for key, sw in self._swatches.items():
-            sw.set_selected(not is_custom and key == value, animated=False)
-        if is_custom:
-            self._custom_color = value
-            self._btn_custom.color = value
-            self._btn_custom.set_selected(True, animated=False)
-        else:
-            self._btn_custom.set_selected(False, animated=False)
+        is_hex = theme.is_custom_hex(value)
+        for k, sw in self._swatches.items():
+            sw.set_selected(not is_hex and k == value, animated=False)
+        matched = False
+        for sw in self._custom_swatches:
+            sel = is_hex and sw.color == value
+            sw.set_selected(sel, animated=False)
+            if sel:
+                matched = True
+        if is_hex and not matched:
+            self._add_custom_swatch(value, select=True, animated=False)
+
+    # ── internal ──────────────────────────────────────────────────────────────
+
+    def _add_custom_swatch(self, hex_val: str, *, select: bool, animated: bool = True) -> _Swatch:
+        sw = _Swatch(hex_val, self)
+        sw.clicked.connect(lambda h=hex_val, s=sw: self._on_custom_clicked(h, s))
+        self._custom_swatches.append(sw)
+        # insert before the '+' button (last item before stretch)
+        idx = self._row.count() - 2   # before btn_add and stretch
+        self._row.insertWidget(idx, sw)
+        if select:
+            sw.set_selected(True, animated=animated)
+        return sw
+
+    def _on_custom_clicked(self, hex_val: str, swatch: _Swatch) -> None:
+        # Single click → select; already selected → re-open picker to edit
+        if self._current == hex_val:
+            self._open_picker(initial_hex=hex_val, edit_swatch=swatch)
+            return
+        self._current = hex_val
+        for sw in self._swatches.values():
+            sw.set_selected(False)
+        for sw in self._custom_swatches:
+            sw.set_selected(sw is swatch)
+        self.accent_changed.emit(hex_val)
 
     def _pick_preset(self, key: str) -> None:
         if self._current == key:
@@ -407,19 +410,36 @@ class ColorSwatchPicker(QWidget):
         self._current = key
         for k, sw in self._swatches.items():
             sw.set_selected(k == key)
-        self._btn_custom.set_selected(False)
+        for sw in self._custom_swatches:
+            sw.set_selected(False)
         self.accent_changed.emit(key)
 
-    def _pick_custom(self) -> None:
-        initial = QColor(self._custom_color) if self._custom_color else QColor(theme.ACCENT)
-        color = QColorDialog.getColor(initial, self, "Custom accent")
-        if not color.isValid():
+    def _open_picker(self, *, initial_hex: str = "", edit_swatch: "_Swatch | None" = None) -> None:
+        from .color_picker import ColorPickerPopup
+        if self._popup is not None:
+            self._popup.close()
+        initial = QColor(initial_hex) if initial_hex else QColor(theme.ACCENT)
+        popup = ColorPickerPopup(initial, self)
+        self._popup = popup
+        popup.color_selected.connect(
+            lambda h, es=edit_swatch: self._on_color_selected(h, es)
+        )
+        popup.show_above(self._btn_add)
+
+    def _on_color_selected(self, hex_val: str, edit_swatch: "_Swatch | None") -> None:
+        self._popup = None
+        if edit_swatch is not None:
+            # Update existing swatch colour
+            edit_swatch.color = hex_val
+            edit_swatch.update()
+            self._current = hex_val
+            self.accent_changed.emit(hex_val)
             return
-        hex_val = color.name()
-        self._custom_color = hex_val
-        self._btn_custom.color = hex_val
-        self._current = hex_val
+        # New custom colour — add a fresh swatch
         for sw in self._swatches.values():
             sw.set_selected(False)
-        self._btn_custom.set_selected(True)
+        for sw in self._custom_swatches:
+            sw.set_selected(False)
+        self._add_custom_swatch(hex_val, select=True)
+        self._current = hex_val
         self.accent_changed.emit(hex_val)
