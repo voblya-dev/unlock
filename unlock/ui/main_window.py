@@ -1069,7 +1069,7 @@ class MainWindow(QWidget):
     @pyqtSlot(int)
     def _on_tab_changed(self, index: int) -> None:
         page = self._tabs.widget(index)
-        if page is not None:
+        if page is not None and not isinstance(page, QScrollArea):
             anim.fade_in(page, duration=anim.NORMAL, start=0.25)
 
     def _restyle(self) -> None:
