@@ -1,0 +1,307 @@
+"""Minimal translation table.
+
+No Qt .ts/.qm toolchain: the string count is small and shipping compiled
+catalogues inside a one-file build is more moving parts than it is worth.
+``tr(key)`` returns English when a key has no translation for the active
+language, so a missing entry degrades instead of crashing.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import locale
+import sys
+
+EN = "en"
+RU = "ru"
+SYSTEM = "system"
+
+LANGUAGES = {EN: "English", RU: "Русский"}
+
+_current = EN
+
+
+_RU: dict[str, str] = {
+    # --- window / tabs
+    "Home": "Главная",
+    "Settings": "Настройки",
+    "Logs": "Журнал",
+    "VPN": "VPN",
+    # --- title bar
+    "Minimise": "Свернуть",
+    "Maximise": "Развернуть",
+    # --- states
+    "Not protected": "Без защиты",
+    "Press the button to enable the bypass": "Нажмите кнопку, чтобы включить обход",
+    "Connecting…": "Подключение…",
+    "Starting the bypass engines": "Запуск движков обхода",
+    "Protected": "Защищено",
+    "Bypass active": "Обход активен",
+    "Disconnecting…": "Отключение…",
+    "Stopping the bypass engines": "Остановка движков обхода",
+    "Benchmarking…": "Тестирование…",
+    "Testing strategies": "Проверка конфигураций",
+    "Error": "Ошибка",
+    "See the Logs tab for details": "Подробности во вкладке «Журнал»",
+    # --- home
+    "Latency": "Задержка",
+    "Strategy": "Конфигурация",
+    "Telegram proxy": "Прокси Telegram",
+    "Click to offer the proxy to Telegram again.":
+        "Нажмите, чтобы снова предложить прокси в Telegram.",
+    "Offered the proxy to Telegram.": "Прокси предложен в Telegram.",
+    "Start the bypass first — the bridge is not running.":
+        "Сначала включите обход — мост не запущен.",
+    "Telegram bridge": "Мост Telegram",    "Not running": "Не запущен",
+    "Re-test / Benchmark": "Перетестировать",
+    # --- settings: general
+    "General": "Общие",
+    "Startup": "Запуск",
+    "When and how Unlock itself starts.": "Когда и как запускается сам Unlock.",
+    "Launch Unlock when Windows starts": "Запускать вместе с Windows",
+    "Adds Unlock to the Windows startup entries for your account.":
+        "Добавляет Unlock в автозапуск Windows для вашей учётной записи.",
+    "Start minimised to tray": "Запускать свёрнутым в трей",
+    "No window on launch — Unlock waits in the notification area.":
+        "Окно не открывается — Unlock ждёт в области уведомлений.",
+    "Connect automatically on launch": "Подключаться автоматически при запуске",
+    "Turn the bypass on automatically": "Включать обход автоматически",
+    "Presses the Home button for you as soon as Unlock is up.":
+        "Нажимает кнопку на «Главной» сразу после запуска.",
+    "Turn my VPN on automatically": "Включать мой VPN автоматически",
+    "Brings up the selected server on the VPN tab at launch.":
+        "Поднимает выбранный на вкладке «VPN» сервер при запуске.",
+    "Play a sound on connect and disconnect":
+        "Звук при подключении и отключении",
+    "Automatic re-test": "Автоматическая перепроверка",
+    "Every %d days": "Каждые %d дн.",
+    "Never": "Никогда",
+    # --- settings: appearance
+    "Appearance": "Оформление",
+    "Theme": "Тема",
+    "Accent": "Акцент",
+    "Language": "Язык",
+    "Follow Windows": "Как в Windows",
+    "Dark": "Тёмная",
+    "Light": "Светлая",
+    "blue": "Синий",
+    "green": "Зелёный",
+    "purple": "Фиолетовый",
+    "orange": "Оранжевый",
+    "rose": "Розовый",
+    # --- settings: engines
+    "Bypass engines": "Движки обхода",
+    "What the Home button starts": "Что включает кнопка на «Главной»",
+    "Pick the engines the main button turns on. Both can run together; "
+    "with both off the button has nothing to do.":
+        "Выберите движки, которые включает главная кнопка. Можно оба сразу; "
+        "если выключены оба — кнопке нечего запускать.",
+    "DPI bypass for YouTube, Discord and HTTPS sites":
+        "Обход DPI для YouTube, Discord и HTTPS-сайтов",
+    "Runs winws with the chosen strategy. Needs Administrator rights.":
+        "Запускает winws с выбранной конфигурацией. Нужны права администратора.",
+    "WebSocket bridge for Telegram": "WebSocket-мост для Telegram",
+    "A local MTProto proxy that carries Telegram over WebSocket.":
+        "Локальный MTProto-прокси, который ведёт Telegram через WebSocket.",
+    "Hand the proxy to Telegram automatically":
+        "Передавать прокси в Telegram автоматически",
+    "On connect, a running Telegram client is asked to adopt the local proxy.":
+        "При подключении запущенному Telegram предлагается включить локальный прокси.",
+    "Watches for Telegram and offers it the local proxy, including after a restart.":
+        "Следит за Telegram и передаёт ему локальный прокси, в том числе после перезапуска.",
+    "Telegram is configured for you: while the bypass is on, the proxy is "
+    "offered to the client as soon as it is running — confirm the prompt once.":
+        "Telegram настраивается сам: пока обход включён, прокси предлагается "
+        "клиенту сразу после запуска — достаточно подтвердить один раз.",
+    "DPI strategy": "Конфигурация DPI",
+    "Auto (benchmark result)": "Авто (по результатам теста)",
+    "Route traffic through my own VPN": "Пускать трафик через свой VPN",
+    "Start my VPN when Unlock launches": "Запускать мой VPN вместе с Unlock",
+    "The VPN has its own button on the VPN tab — this only preselects it.":
+        "У VPN своя кнопка на вкладке «VPN» — здесь только автозапуск.",
+    "Point the Windows proxy at the VPN": "Направить системный прокси в VPN",
+    "Route every app through the VPN (TUN)":
+        "Направить все приложения через VPN (TUN)",
+    "Creates a virtual network adapter. Needs Administrator rights.":
+        "Создаёт виртуальный сетевой адаптер. Нужны права администратора.",
+    "On: a virtual adapter carries all traffic, so apps that ignore the "
+    "Windows proxy — Telegram, games, anything on UDP — still go through "
+    "the VPN. This is how WireSock and similar clients work.":
+        "Включено: виртуальный адаптер несёт весь трафик, поэтому приложения, "
+        "игнорирующие системный прокси — Telegram, игры, всё на UDP — тоже "
+        "идут через VPN. Так работают WireSock и подобные клиенты.",
+    "Used when TUN is off: Windows sends every app's traffic to the local "
+    "port the tunnel listens on, but apps with their own proxy setting "
+    "ignore it.":
+        "Работает, когда TUN выключен: Windows направляет трафик приложений "
+        "на локальный порт туннеля, но приложения со своими настройками "
+        "прокси это игнорируют.",
+    "Ordinary apps follow the tunnel; the setting is restored on disconnect.":
+        "Обычные приложения пойдут через туннель; при отключении настройка вернётся.",
+    "The VPN has its own button on the VPN tab and runs independently of "
+    "the bypass.":
+        "У VPN своя кнопка на вкладке «VPN», он работает независимо от обхода.",
+    # --- vpn tab
+    "VPN off": "VPN выключен",
+    "VPN on": "VPN включён",
+    "Connect VPN": "Подключить VPN",
+    "Disconnect VPN": "Отключить VPN",
+    "%s · SOCKS 127.0.0.1:%d": "%s · SOCKS 127.0.0.1:%d",
+    "%s · every app is routed through the tunnel":
+        "%s · весь трафик идёт через туннель",
+    # --- live tunnel stats
+    "Time": "Время",
+    "Upload": "Передача",
+    "Download": "Получение",
+    "Quality": "Качество",
+    "Now": "Сейчас",
+    "Total sent": "Всего отправлено",
+    "Total received": "Всего получено",
+    "Ping": "Ping",
+    "Packet loss": "Потери пакетов",
+    "Starting the tunnel": "Запуск туннеля",
+    "Stopping the tunnel": "Остановка туннеля",
+    "Ready: %s": "Готов: %s",
+    "Add a server below, then press the button.":
+        "Добавьте сервер ниже и нажмите кнопку.",
+    "Add a server, then press the button.":
+        "Добавьте сервер и нажмите кнопку.",
+    "Add your own VPN": "Добавить свой VPN",
+    # --- add-servers dialog
+    "Add servers": "Добавить серверы",
+    "Paste one link per line — vless, vmess, trojan, ss, hysteria2, "
+    "an Amnezia vpn:// link, or a subscription URL. Everything you paste "
+    "and drop is imported together.":
+        "Вставьте по одной ссылке в строке — vless, vmess, trojan, ss, hysteria2, "
+        "ссылку Amnezia vpn:// или адрес подписки. Всё вставленное и перетащенное "
+        "импортируется разом.",
+    "Drop config files or QR images here":
+        "Перетащите сюда файлы конфигурации или QR-коды",
+    "…or click to browse. Several files at once are fine.":
+        "…или нажмите для выбора. Можно сразу несколько файлов.",
+    "Queued files: %s": "Файлы в очереди: %s",
+    "Browse…": "Обзор…",
+    "Cancel": "Отмена",
+    "Import": "Импортировать",
+    "Close": "Закрыть",
+    "Paste a link or add a file first.":
+        "Сначала вставьте ссылку или добавьте файл.",
+    "Nothing importable was found.": "Не найдено ничего для импорта.",
+    "Imported %d, skipped %d:": "Импортировано: %d, пропущено: %d:",
+    "No servers yet — press Add, or drop a config here.":
+        "Серверов пока нет — нажмите «Добавить» или перетащите сюда конфигурацию.",
+    "Paste a vless/vmess/trojan/ss/hysteria2 link, a subscription URL "
+    "or an Amnezia vpn:// link — or import a WireGuard/AmneziaWG .conf, "
+    "a config file or a QR screenshot.":
+        "Вставьте ссылку vless/vmess/trojan/ss/hysteria2, адрес подписки "
+        "или ссылку Amnezia vpn:// — либо импортируйте .conf WireGuard/AmneziaWG, "
+        "файл конфигурации или скриншот QR-кода.",
+    "Add": "Добавить",
+    "From file": "Из файла",
+    "From QR image": "Из QR-кода",
+    "Your servers": "Ваши серверы",
+    "No servers yet.": "Серверов пока нет.",
+    "Remove": "Удалить",
+    "Importing…": "Импорт…",
+    "Added %d server(s)": "Добавлено серверов: %d",
+    "Those servers are already saved": "Эти серверы уже сохранены",
+    "Import a VPN config": "Импорт конфигурации VPN",
+    "Import a QR code": "Импорт QR-кода",
+    "Configs and QR images (*.conf *.txt *.json *.yaml *.yml *.png *.jpg *.jpeg);;All files (*)":
+        "Конфигурации и QR-коды (*.conf *.txt *.json *.yaml *.yml *.png *.jpg *.jpeg);;Все файлы (*)",
+    "Images (*.png *.jpg *.jpeg *.bmp *.webp)":
+        "Изображения (*.png *.jpg *.jpeg *.bmp *.webp)",
+    "%s is missing from this install — servers can be saved now, "
+    "but the tunnel will not start. Reinstall Unlock.":
+        "В установке нет %s — серверы сохранятся, но туннель не запустится. "
+        "Переустановите Unlock.",
+    "Selected: %s": "Выбран: %s",
+    "Not configured": "Не настроен",
+    # --- settings: files
+    "Files": "Файлы",
+    # --- logs
+    "Clear view": "Очистить",
+    # --- tray
+    "Connect": "Подключить",
+    "Disconnect": "Отключить",
+    "Show window": "Показать окно",
+    "Re-test strategies": "Перетестировать",
+    "Quit": "Выход",
+    "Still running in the tray. Use Quit to exit completely.":
+        "Приложение свёрнуто в трей. Для полного выхода нажмите «Выход».",
+    # --- benchmark dialog
+    "Finding the best configuration": "Поиск лучшей конфигурации",
+    "Benchmarking bypass strategies": "Тестирование конфигураций обхода",
+    "First launch: Unlock tests every bypass strategy against YouTube, "
+    "Discord and Telegram, then keeps the fastest one that works fully.":
+        "Первый запуск: приложение проверит каждую конфигурацию на YouTube, "
+        "Discord и Telegram и оставит самую быструю из полностью рабочих.",
+    "Re-testing every strategy. The fastest fully-working configuration "
+    "will replace the current one.":
+        "Повторная проверка всех конфигураций. Текущую заменит самая быстрая "
+        "из полностью рабочих.",
+    "Preparing…": "Подготовка…",
+    "Hide": "Скрыть",
+    "Finish": "Завершить",
+    "Press the button to reopen the test window":
+        "Нажмите кнопку, чтобы вернуться к окну проверки",
+    "Done": "Готово",
+    "Testing cancelled — pick a strategy in Settings":
+        "Тестирование отменено — выберите конфигурацию в настройках",
+    "No config unblocked anything. Try again on a different network, "
+    "or update the bundled zapret build.":
+        "Ни одна конфигурация ничего не разблокировала. Попробуйте другую сеть "
+        "или обновите встроенную сборку zapret.",
+    # --- errors
+    "Could not update the Windows startup entry.":
+        "Не удалось изменить автозапуск Windows.",
+    "Testing Telegram bridge": "Проверка моста Telegram",
+    "Both DPI bypass and Telegram proxy are disabled in Settings.":
+        "В настройках отключены и обход DPI, и прокси Telegram.",
+    "Every bypass engine is disabled in Settings.":
+        "В настройках отключены все движки обхода.",
+    "No VPN server selected — add one in the VPN tab.":
+        "Не выбран VPN-сервер — добавьте его во вкладке «VPN».",
+    "Restart Unlock as Administrator — WinDivert needs elevation.":
+        "Перезапустите от имени администратора — WinDivert требует прав.",
+    "Still finishing the cancelled test — try again in a moment.":
+        "Отменённая проверка ещё завершается — повторите через мгновение.",
+}
+
+_CATALOGUES = {EN: {}, RU: _RU}
+
+
+def system_language() -> str:
+    """Windows UI language mapped onto a supported code; English otherwise."""
+    if sys.platform == "win32":
+        try:
+            buffer = ctypes.create_unicode_buffer(85)
+            if ctypes.windll.kernel32.GetUserDefaultLocaleName(buffer, 85):
+                return RU if buffer.value.lower().startswith("ru") else EN
+        except Exception:                          # noqa: BLE001 - ctypes surface
+            pass
+    try:
+        code = locale.getlocale()[0] or ""
+    except ValueError:
+        return EN
+    return RU if code.lower().startswith(("ru", "russian")) else EN
+
+
+def resolve(preference: str) -> str:
+    if preference in _CATALOGUES:
+        return preference
+    return system_language()
+
+
+def set_language(preference: str = SYSTEM) -> str:
+    global _current
+    _current = resolve(preference)
+    return _current
+
+
+def current() -> str:
+    return _current
+
+
+def tr(text: str) -> str:
+    return _CATALOGUES[_current].get(text, text)

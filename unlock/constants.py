@@ -1,0 +1,179 @@
+"""Global paths, constants and default settings for Unlock."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+APP_NAME = "Unlock"
+APP_VERSION = "1.0.0"
+
+# ---------------------------------------------------------------- paths
+
+
+def _base_dir() -> Path:
+    """Directory that holds bundled read-only resources.
+
+    PyInstaller unpacks one-file builds into a temp dir exposed as
+    ``sys._MEIPASS``; in a source checkout it is the repo root.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass)
+    return Path(__file__).resolve().parent.parent
+
+
+BASE_DIR = _base_dir()
+
+# Where the running .exe actually lives. Distinct from BASE_DIR: in a one-file
+# build BASE_DIR is a temp dir that is wiped on exit, so anything the user is
+# meant to drop in by hand has to be looked for here instead.
+INSTALL_DIR = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent.parent
+)
+
+# Writable per-user location: never write next to the .exe, Program Files is
+# read-only for non-elevated writes and roaming profiles need this anyway.
+DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
+LOG_DIR = DATA_DIR / "logs"
+CONFIG_PATH = DATA_DIR / "config.json"
+LOG_PATH = LOG_DIR / "unlock.log"
+
+BIN_DIR = BASE_DIR / "bin"
+ZAPRET_DIR = BIN_DIR / "zapret"
+WINWS_EXE = ZAPRET_DIR / "winws.exe"
+LISTS_DIR = ZAPRET_DIR / "lists"
+CONFIGS_DIR = ZAPRET_DIR / "configs"
+
+# Two engines back the user's own VPN profiles, picked by protocol:
+# sing-box for the v2ray family, wireproxy for WireGuard and AmneziaWG. Both are
+# bundled, but they are also looked for next to the .exe and in the per-user data
+# dir so a newer build can be dropped in without rebuilding the app.
+SINGBOX_SEARCH_DIRS = (
+    INSTALL_DIR / "sing-box",
+    DATA_DIR / "sing-box",
+    BIN_DIR / "sing-box",
+)
+
+WIREPROXY_SEARCH_DIRS = (
+    INSTALL_DIR / "wireproxy",
+    DATA_DIR / "wireproxy",
+    BIN_DIR / "wireproxy",
+)
+
+# Amnezia's own Windows client, used headless. Unlike wireproxy it drives a real
+# Wintun adapter, so UDP works — Discord voice, games, QUIC. wintun.dll must sit
+# next to the exe; amneziawg.exe loads it by name from its own directory.
+AMNEZIAWG_SEARCH_DIRS = (
+    INSTALL_DIR / "amneziawg",
+    DATA_DIR / "amneziawg",
+    BIN_DIR / "amneziawg",
+)
+
+VPN_CONFIG_PATH = DATA_DIR / "vpn-config.json"
+WIREPROXY_CONFIG_PATH = DATA_DIR / "vpn-wg.conf"
+
+# The tunnel service reads this file, and names its adapter after the stem.
+# It must live somewhere SYSTEM can read: the service runs as LocalSystem, so a
+# path under the user's roaming profile would be unreadable to it.
+AMNEZIAWG_CONFIG_PATH = Path(os.environ.get("PROGRAMDATA", DATA_DIR)) / APP_NAME / "unlock.conf"
+AMNEZIAWG_TUNNEL_NAME = "unlock"
+
+for _d in (DATA_DIR, LOG_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------- network
+
+# Local MTProto port Telegram Desktop is pointed at. 1443 is what tg-ws-proxy
+# uses, so a user who already has that app is not surprised by a different one.
+TELEGRAM_PROXY_PORT = 1443
+
+# Local listeners for the user's own VPN profile. sing-box binds both: SOCKS is
+# what the Windows system proxy is pointed at, HTTP is the fallback for apps
+# that ignore a SOCKS setting.
+VPN_SOCKS_PORT = 2080
+VPN_HTTP_PORT = 2081
+
+# TUN mode: sing-box owns a virtual adapter and forwards everything into the
+# proxy above, so apps that ignore the Windows proxy setting — Telegram, games,
+# anything on UDP — still follow the tunnel. Addresses are from the 172.19/16
+# block sing-box itself defaults to, which nothing else on a home LAN uses.
+VPN_TUN_ADDRESS = "172.19.0.1/30"
+VPN_TUN_MTU = 1400
+VPN_TUN_CONFIG_PATH = DATA_DIR / "vpn-tun.json"
+
+# Endpoints used by the benchmark to score a strategy. Mirrors the target set
+# from the zapret pack's own "test zapret.ps1" / utils/targets.txt.
+PROBE_TARGETS = {
+    "discord": [
+        "https://discord.com",
+        "https://gateway.discord.gg",
+        "https://cdn.discordapp.com",
+        "https://updates.discord.com",
+    ],
+    "youtube": [
+        "https://www.youtube.com",
+        "https://youtu.be",
+        "https://i.ytimg.com",
+        "https://redirector.googlevideo.com",
+    ],
+    "google": [
+        "https://www.google.com",
+        "https://www.gstatic.com",
+    ],
+    "cloudflare": [
+        "https://www.cloudflare.com",
+        "https://cdnjs.cloudflare.com",
+    ],
+}
+
+# Ping-only targets: latency here is not affected by the hostlist, so it acts as
+# a tie-break for "does this strategy slow the whole link down".
+PING_TARGETS = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
+
+# Each URL is probed once per protocol; a strategy must pass all of them.
+PROBE_PROTOCOLS = ("http1.1", "tls1.2", "tls1.3")
+
+# How many probes run at once. The pack's script uses 8.
+PROBE_PARALLEL = 8
+
+PROBE_TIMEOUT = 5.0          # seconds per probe, same as the pack's script
+# winws either binds the filter almost at once or dies on a bad argument vector,
+# so start() polls for that instead of sleeping out a fixed grace period.
+STRATEGY_SETTLE_TIMEOUT = 1.2
+STRATEGY_SETTLE_POLL = 0.05
+# The benchmark measures throughput, so it gives winws the full grace period the
+# zapret pack's own script uses before probing.
+BENCHMARK_SETTLE_DELAY = 5.0
+
+# ---------------------------------------------------------------- defaults
+
+DEFAULT_CONFIG: dict = {
+    "first_run_done": False,
+    "benchmark_skipped": False,  # user cancelled testing, picks the strategy manually
+    "start_minimized": False,
+    "auto_connect_on_launch": False,
+    "auto_retest_days": 0,  # 0 = never; the user opts into a schedule
+    "last_benchmark_utc": None,
+    "dpi_strategy": None,        # name of the winws strategy chosen
+    "enable_dpi": True,
+    "enable_telegram": True,
+    "telegram_auto_proxy": True,  # hand the local proxy to a running Telegram
+    # Stable MTProto secret: Telegram recognises the proxy it already has
+    # instead of being offered a fresh one after every restart.
+    "telegram_secret": None,
+    "benchmark_results": {},
+    "theme": "system",           # system | dark | light
+    "accent": "blue",            # key from ui.theme.ACCENTS
+    "language": "system",        # system | en | ru
+    "sounds": True,              # chime on connect / disconnect
+    # --- custom VPN
+    "vpn_profiles": [],          # list of vpn.Profile.as_dict()
+    "vpn_active": None,          # id of the profile to bring up with the tunnel
+    "vpn_tun": True,             # route every app through a TUN adapter
+    "enable_vpn": False,
+    "vpn_system_proxy": True,    # point Windows at the local SOCKS/HTTP port
+}
