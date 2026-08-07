@@ -42,20 +42,36 @@ def from_text(text: str, name: str = "") -> list[Profile]:
 
 
 def from_subscription(url: str) -> list[Profile]:
-    """Fetch a subscription URL and parse whatever it serves."""
+    """Fetch a bounded HTTPS subscription without following untrusted redirects."""
     import requests
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise VpnLinkError("Subscription URL must use HTTPS")
 
     try:
-        response = requests.get(
-            url, timeout=_FETCH_TIMEOUT, headers={"User-Agent": "unlock"}
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
+        with requests.get(
+            url,
+            timeout=_FETCH_TIMEOUT,
+            headers={"User-Agent": "unlock"},
+            stream=True,
+            allow_redirects=False,
+        ) as response:
+            response.raise_for_status()
+            declared = response.headers.get("Content-Length")
+            if declared and int(declared) > _MAX_SUBSCRIPTION_BYTES:
+                raise VpnLinkError("Subscription response is too large")
+            payload = bytearray()
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                payload.extend(chunk)
+                if len(payload) > _MAX_SUBSCRIPTION_BYTES:
+                    raise VpnLinkError("Subscription response is too large")
+            encoding = response.encoding or "utf-8"
+    except (requests.RequestException, ValueError) as exc:
         raise VpnLinkError(f"Could not fetch the subscription: {exc}") from exc
 
-    if len(response.content) > _MAX_SUBSCRIPTION_BYTES:
-        raise VpnLinkError("Subscription response is too large")
-    return parse_many(response.text)
+    return parse_many(bytes(payload).decode(encoding, "replace"))
 
 
 def from_file(path: str | Path) -> list[Profile]:

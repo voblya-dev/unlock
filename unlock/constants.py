@@ -48,19 +48,13 @@ WINWS_EXE = ZAPRET_DIR / "winws.exe"
 LISTS_DIR = ZAPRET_DIR / "lists"
 CONFIGS_DIR = ZAPRET_DIR / "configs"
 
-# Two engines back the user's own VPN profiles, picked by protocol:
-# sing-box for the v2ray family, wireproxy for WireGuard and AmneziaWG. Both are
-# bundled, but they are also looked for next to the .exe and in the per-user data
-# dir so a newer build can be dropped in without rebuilding the app.
+# VPN engines are bundled with the signed application. Do not search a
+# per-user writable directory from this elevated process.
 SINGBOX_SEARCH_DIRS = (
-    INSTALL_DIR / "sing-box",
-    DATA_DIR / "sing-box",
     BIN_DIR / "sing-box",
 )
 
 WIREPROXY_SEARCH_DIRS = (
-    INSTALL_DIR / "wireproxy",
-    DATA_DIR / "wireproxy",
     BIN_DIR / "wireproxy",
 )
 
@@ -68,8 +62,6 @@ WIREPROXY_SEARCH_DIRS = (
 # Wintun adapter, so UDP works — Discord voice, games, QUIC. wintun.dll must sit
 # next to the exe; amneziawg.exe loads it by name from its own directory.
 AMNEZIAWG_SEARCH_DIRS = (
-    INSTALL_DIR / "amneziawg",
-    DATA_DIR / "amneziawg",
     BIN_DIR / "amneziawg",
 )
 
@@ -203,7 +195,7 @@ DEFAULT_CONFIG: dict = {
     # Dress the local MTProto handshake as TLS (ee-secret). On by default: it is
     # the mode Telegram's own clients treat as ordinary HTTPS, and anything that
     # connects to the port without the right ClientHello sees a real website.
-    "telegram_fake_tls": True,
+    "telegram_fake_tls": False,
     # Fold the game port range into the winws filter. Off by default: it widens
     # the filter from a handful of web ports to 1024-65535.
     "game_filter": False,

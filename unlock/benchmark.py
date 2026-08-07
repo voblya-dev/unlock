@@ -370,7 +370,9 @@ class Benchmark:
             return TelegramResult(False, float("inf"), str(exc))
 
         try:
-            ok, ms = _mtproto_probe(self._proxy.port)
+            listener_ok, ms = _mtproto_probe(self._proxy.port)
+            upstream_ok = self._proxy.check_upstream()
+            ok = listener_ok and upstream_ok
         finally:
             self._proxy.stop()
 

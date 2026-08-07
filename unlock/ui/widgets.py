@@ -1,5 +1,5 @@
 """Custom input widgets: a wheel-proof combo box, an animated pill switch, a
-gamepad glyph, and a colour-swatch accent picker."""
+gamepad glyph, a colour-swatch accent picker, and a sidebar NavButton."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from PyQt6.QtCore import (
     pyqtProperty,
     pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPen
+from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -64,6 +64,7 @@ class Switch(QCheckBox):
         self.setSizePolicy(policy)
 
         self._pos = 1.0 if self.isChecked() else 0.0
+        self._highlighted = False
         self._slide = QPropertyAnimation(self, b"knob", self)
         self._slide.setDuration(anim.NORMAL)
         self._slide.setEasingCurve(QEasingCurve.Type.OutBack)
@@ -86,6 +87,17 @@ class Switch(QCheckBox):
         self._slide.setStartValue(self._pos)
         self._slide.setEndValue(1.0 if checked else 0.0)
         self._slide.start()
+
+    def highlight(self, duration: int = 1800) -> None:
+        """Flash the text colour briefly to indicate a search hit."""
+        self._highlighted = True
+        self.update()
+        QTimer = __import__("PyQt6.QtCore", fromlist=["QTimer"]).QTimer
+        QTimer.singleShot(duration, self._clear_highlight)
+
+    def _clear_highlight(self) -> None:
+        self._highlighted = False
+        self.update()
 
     def setChecked(self, checked: bool) -> None:
         super().setChecked(checked)
@@ -164,7 +176,9 @@ class Switch(QCheckBox):
         )
 
         if self.text():
-            painter.setPen(QColor(theme.TEXT if enabled else theme.TEXT_FAINT))
+            hl = getattr(self, "_highlighted", False)
+            text_color = QColor(theme.ACCENT if hl else (theme.TEXT if enabled else theme.TEXT_FAINT))
+            painter.setPen(text_color)
             painter.setFont(self.font())
             painter.drawText(
                 self._text_rect(self.width(), self.height()),
@@ -459,3 +473,166 @@ class ColorSwatchPicker(QWidget):
         self._add_custom_swatch(hex_val, select=True)
         self._current = hex_val
         self.accent_changed.emit(hex_val)
+
+
+# ---------------------------------------------------------------------------
+# Sidebar navigation button
+# ---------------------------------------------------------------------------
+
+_NAV_ICON_SIZE = 18  # px, the square the glyph is drawn into
+
+
+def _paint_nav_icon(
+    painter: QPainter,
+    icon: str,
+    color: QColor,
+    cx: float,
+    cy: float,
+    sz: float,
+) -> None:
+    """Draw a minimalist line icon centred at (cx, cy) in a sz×sz box."""
+    h = sz / 2
+    pen = QPen(color, max(1.3, sz * 0.085), Qt.PenStyle.SolidLine,
+               Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    if icon == "home":
+        # House outline: peaked roof + walls + door
+        roof_top = QPointF(cx, cy - h * 0.90)
+        left     = QPointF(cx - h * 0.78, cy - h * 0.10)
+        right    = QPointF(cx + h * 0.78, cy - h * 0.10)
+        bl       = QPointF(cx - h * 0.78, cy + h * 0.90)
+        br       = QPointF(cx + h * 0.78, cy + h * 0.90)
+
+        path = QPainterPath()
+        path.moveTo(roof_top)
+        path.lineTo(left)
+        path.lineTo(bl)
+        path.lineTo(br)
+        path.lineTo(right)
+        path.lineTo(roof_top)
+        painter.drawPath(path)
+
+        # Door (lower centre)
+        dw, dh = h * 0.32, h * 0.50
+        painter.drawRect(QRectF(cx - dw, cy + h * 0.90 - dh, dw * 2, dh))
+
+    elif icon == "shield":
+        # Shield: rounded top, pointed bottom
+        path = QPainterPath()
+        path.moveTo(cx, cy - h * 0.92)
+        path.lineTo(cx - h * 0.70, cy - h * 0.60)
+        path.lineTo(cx - h * 0.70, cy + h * 0.08)
+        path.quadTo(QPointF(cx - h * 0.70, cy + h * 0.55),
+                    QPointF(cx,             cy + h * 0.92))
+        path.quadTo(QPointF(cx + h * 0.70, cy + h * 0.55),
+                    QPointF(cx + h * 0.70, cy + h * 0.08))
+        path.lineTo(cx + h * 0.70, cy - h * 0.60)
+        path.closeSubpath()
+        painter.drawPath(path)
+
+    elif icon == "gear":
+        # Circle with 6 small rectangular teeth
+        inner_r = h * 0.38
+        outer_r = h * 0.72
+        tooth_w = h * 0.20
+        painter.drawEllipse(QRectF(cx - inner_r, cy - inner_r,
+                                   inner_r * 2, inner_r * 2))
+        import math
+        for i in range(6):
+            angle = math.radians(i * 60)
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            ix = cx + inner_r * cos_a
+            iy = cy + inner_r * sin_a
+            ox = cx + outer_r * cos_a
+            oy = cy + outer_r * sin_a
+            painter.drawLine(QPointF(ix, iy), QPointF(ox, oy))
+            # Small cap at the tip
+            perp_x = -sin_a * tooth_w / 2
+            perp_y =  cos_a * tooth_w / 2
+            painter.drawLine(
+                QPointF(ox - perp_x, oy - perp_y),
+                QPointF(ox + perp_x, oy + perp_y),
+            )
+
+    elif icon == "list":
+        # Three horizontal lines (like a list/log icon)
+        gap = h * 0.42
+        for dy in (-gap, 0, gap):
+            painter.drawLine(
+                QPointF(cx - h * 0.70, cy + dy),
+                QPointF(cx + h * 0.70, cy + dy),
+            )
+
+    else:
+        # Fallback: a simple circle
+        painter.drawEllipse(QRectF(cx - h * 0.60, cy - h * 0.60,
+                                   h * 1.20, h * 1.20))
+
+
+class NavButton(QPushButton):
+    """Sidebar navigation item: line icon on the left, label text to its right.
+
+    The active / inactive state is expressed through the Qt object-name so the
+    global stylesheet can drive colours without any inline style overrides.
+    """
+
+    def __init__(
+        self,
+        icon: str,
+        label: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(label, parent)
+        self._icon = icon
+        self._active = False
+        self.setObjectName("navItem")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Left-align the text; leave room for the painted icon on the left
+        self.setStyleSheet("")  # defer all styling to the global sheet
+
+    def set_active(self, active: bool) -> None:
+        if active == self._active:
+            return
+        self._active = active
+        self.setObjectName("navItemActive" if active else "navItem")
+        # Force the stylesheet to re-evaluate for the new object name
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        return QSize(180, 40)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Let the stylesheet paint the background + border-radius
+        from PyQt6.QtWidgets import QStyleOption, QStyle
+        opt = QStyleOption()
+        opt.initFrom(self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, painter, self)
+
+        # Icon colour: white when active, muted when not
+        icon_color = theme.qcolor(theme.TEXT if self._active else theme.TEXT_MUTED)
+
+        sz = float(_NAV_ICON_SIZE)
+        pad_left = 14.0
+        cx = pad_left + sz / 2
+        cy = self.height() / 2.0
+
+        _paint_nav_icon(painter, self._icon, icon_color, cx, cy, sz)
+
+        # Label
+        text_x = pad_left + sz + 10.0
+        text_color = theme.qcolor(theme.TEXT if self._active else theme.TEXT_MUTED)
+        painter.setPen(text_color)
+        painter.setFont(self.font())
+        painter.drawText(
+            QRectF(text_x, 0, self.width() - text_x - 8, self.height()),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            self.text(),
+        )

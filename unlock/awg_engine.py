@@ -114,6 +114,15 @@ def _run(argv: list[str], timeout: float = 30.0) -> subprocess.CompletedProcess:
         raise AwgEngineError(f"Could not run {argv[0]}: {exc}") from exc
 
 
+def _lock_config_permissions() -> None:
+    """Only LocalSystem and Administrators may read a tunnel private key."""
+    result = _run([
+        "icacls", str(AMNEZIAWG_CONFIG_PATH), "/inheritance:r", "/grant:r",
+        "*S-1-5-18:(R)", "*S-1-5-32-544:(F)",
+    ])
+    if result.returncode != 0:
+        raise AwgEngineError("Could not protect the AmneziaWG private-key file")
+
 def _service_state() -> str:
     """RUNNING / STOPPED / ABSENT, straight from the service database."""
     result = _run(["sc", "query", _SERVICE], timeout=10)
@@ -158,6 +167,7 @@ class AwgEngine:
 
         AMNEZIAWG_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         AMNEZIAWG_CONFIG_PATH.write_text(build_config(profile), encoding="utf-8")
+        _lock_config_permissions()
 
         log.info("Installing the AmneziaWG tunnel service for '%s'", profile.name)
         result = _run([str(exe), "/installtunnelservice", str(AMNEZIAWG_CONFIG_PATH)])
@@ -192,6 +202,7 @@ class AwgEngine:
         exe = amneziawg_path()
         if exe is None or _service_state() == "ABSENT":
             self._profile = None
+            AMNEZIAWG_CONFIG_PATH.unlink(missing_ok=True)
             return
 
         log.info("Removing the AmneziaWG tunnel service")
@@ -209,3 +220,5 @@ class AwgEngine:
             log.warning("Tunnel service still present after %.0fs", _STOP_TIMEOUT)
 
         self._profile = None
+        if _service_state() == "ABSENT":
+            AMNEZIAWG_CONFIG_PATH.unlink(missing_ok=True)

@@ -66,6 +66,7 @@ binaries_and_data.append(
     (str(ROOT / "unlock" / "tgwsproxy" / "LICENSE"), "unlock/tgwsproxy")
 )
 
+
 # The window and taskbar icon is loaded from this file at runtime, not only
 # stamped into the exe header by the EXE(icon=...) argument below.
 if (ROOT / "assets" / "unlock.ico").exists():

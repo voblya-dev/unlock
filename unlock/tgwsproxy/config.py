@@ -186,20 +186,13 @@ _refresh_stop: threading.Event = threading.Event()
 
 
 def start_cfproxy_domain_refresh() -> None:
-    global _refresh_stop
-    _refresh_stop.set()
-    _refresh_stop = threading.Event()
-    stop = _refresh_stop
+    """Use only the reviewed, bundled fallback-domain list.
 
+    Runtime downloads let a compromised repository alter traffic routing without
+    an application update or user approval.
+    """
     balancer.update_domains_list(CFPROXY_DEFAULT_DOMAINS)
-
-    def _loop():
-        refresh_cfproxy_domains()
-        while not stop.wait(timeout=3600):
-            refresh_cfproxy_domains()
-
-    threading.Thread(target=_loop, daemon=True, name='cfproxy-domains-refresh').start()
-
+    log.info("Using bundled CF proxy domain pool (%d domains)", len(CFPROXY_DEFAULT_DOMAINS))
 
 def parse_dc_ip_list(dc_ip_list: List[str]) -> Dict[int, str]:
     dc_redirects: Dict[int, str] = {}

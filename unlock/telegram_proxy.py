@@ -114,7 +114,7 @@ class TelegramProxy:
         ws_pool.reset()
         cf_worker_pool.reset()
 
-    def start(self, secret: str | None = None, *, fake_tls: bool = True) -> None:
+    def start(self, secret: str | None = None, *, fake_tls: bool = False) -> None:
         """Bind the listener. A caller-supplied secret keeps the tg:// link
         stable across restarts, so Telegram recognises the proxy it already has
         instead of being offered a new one every time."""
@@ -155,6 +155,24 @@ class TelegramProxy:
         self.fake_tls_domain = ""
         log.info("Telegram proxy stopped")
 
+    def check_upstream(self) -> bool:
+        """Verify a certificate-authenticated Telegram WebSocket endpoint."""
+        from .tgwsproxy.raw_websocket import RawWebSocket
+
+        target = proxy_config.dc_redirects.get(2)
+        if not target:
+            return False
+
+        async def probe() -> None:
+            ws = await RawWebSocket.connect(target, "kws2.web.telegram.org", timeout=5.0)
+            await ws.close()
+
+        try:
+            asyncio.run(probe())
+            return True
+        except Exception as exc:  # network failures are an expected diagnostic result
+            log.warning("Telegram upstream probe failed: %s", exc)
+            return False
     # ------------------------------------------------------------- internals
 
     def _wait_until_listening(self) -> None:

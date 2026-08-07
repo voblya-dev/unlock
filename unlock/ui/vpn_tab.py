@@ -31,7 +31,7 @@ from ..controller import State
 from ..vpn_links import Profile, VpnLinkError
 from . import anim, theme
 from .i18n import tr
-from .power_button import PowerButton
+from .polished_aura_button import PolishedAuraButton
 from .stats_panel import StatsPanel
 from .vpn_add_dialog import AddServersDialog, DropZone
 
@@ -220,7 +220,7 @@ class VpnTab(QWidget):
         layout.setContentsMargins(16, 18, 16, 16)
         layout.setSpacing(10)
 
-        self._power = PowerButton(size=150)
+        self._power = PolishedAuraButton(size=250)
         self._power.clicked.connect(self._controller.vpn_toggle)
         holder = QHBoxLayout()
         holder.addStretch(1)
@@ -446,3 +446,15 @@ class VpnTab(QWidget):
             anim.expand(self._status)
         elif not text and was_visible:
             anim.collapse(self._status)
+
+
+
+
+
+
+
+
+
+
+
+

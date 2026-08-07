@@ -1,4 +1,5 @@
 import os
+import os
 import ssl
 import logging
 import base64
@@ -11,6 +12,9 @@ from . import dialer
 from .config import proxy_config
 
 log = logging.getLogger('tg-mtproto-proxy')
+_MAX_RESPONSE_HEADERS = 64
+_MAX_RESPONSE_HEADER_BYTES = 64 * 1024
+_MAX_FRAME_BYTES = 8 * 1024 * 1024
 
 
 _st_BB = struct.Struct('>BB')
@@ -23,8 +27,6 @@ _st_H = struct.Struct('>H')
 _st_Q = struct.Struct('>Q')
 
 _ssl_ctx = ssl.create_default_context()
-_ssl_ctx.check_hostname = False
-_ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
 class WsHandshakeError(Exception):
@@ -112,15 +114,19 @@ class RawWebSocket:
         await writer.drain()
 
         response_lines: list[str] = []
+        header_bytes = 0
         try:
-            while True:
-                line = await asyncio.wait_for(reader.readline(),
-                                              timeout=timeout)
+            for _ in range(_MAX_RESPONSE_HEADERS):
+                line = await asyncio.wait_for(reader.readline(), timeout=timeout)
+                header_bytes += len(line)
+                if header_bytes > _MAX_RESPONSE_HEADER_BYTES:
+                    raise WsHandshakeError(0, "response headers too large")
                 if line in (b'\r\n', b'\n', b''):
                     break
-                response_lines.append(
-                    line.decode('utf-8', errors='replace').strip())
-        except asyncio.TimeoutError:
+                response_lines.append(line.decode('utf-8', errors='replace').strip())
+            else:
+                raise WsHandshakeError(0, "too many response headers")
+        except (asyncio.TimeoutError, WsHandshakeError):
             writer.close()
             raise
 
@@ -260,6 +266,8 @@ class RawWebSocket:
             length = _st_H.unpack(await self.reader.readexactly(2))[0]
         elif length == 127:
             length = _st_Q.unpack(await self.reader.readexactly(8))[0]
+        if length > _MAX_FRAME_BYTES:
+            raise WsHandshakeError(1009, f"WebSocket frame exceeds {_MAX_FRAME_BYTES} bytes")
         if hdr[1] & 0x80:
             mask_key = await self.reader.readexactly(4)
             payload = await self.reader.readexactly(length)

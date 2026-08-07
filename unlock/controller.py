@@ -477,7 +477,7 @@ class Controller(QObject):
 
     @property
     def fake_tls(self) -> bool:
-        return bool(self.config.get("telegram_fake_tls", True))
+        return bool(self.config.get("telegram_fake_tls", False))
 
     def set_fake_tls(self, enabled: bool) -> bool:
         """Switch the MTProto handshake flavour, restarting the bridge if it is up.
@@ -814,7 +814,7 @@ class Controller(QObject):
         if self.config.get("enable_telegram", True):
             self.telegram.start(
                 self._telegram_secret(),
-                fake_tls=self.config.get("telegram_fake_tls", True),
+                fake_tls=self.config.get("telegram_fake_tls", False),
             )
             started.append("Telegram bridge")
             if self.config.get("telegram_auto_proxy", True):
@@ -850,7 +850,19 @@ class Controller(QObject):
     # ------------------------------------------------------------- vpn
 
     def vpn_profiles(self) -> list[Profile]:
-        return [Profile.from_dict(item) for item in self.config.get("vpn_profiles") or []]
+        items = self.config.get("vpn_profiles") or []
+        if not isinstance(items, list):
+            log.warning("Ignoring malformed VPN profile list")
+            return []
+        profiles: list[Profile] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                profiles.append(Profile.from_dict(item))
+            except (TypeError, ValueError):
+                log.warning("Ignoring malformed VPN profile")
+        return profiles
 
     def active_vpn_profile(self) -> Profile | None:
         active = self.config.get("vpn_active")
@@ -896,7 +908,10 @@ class Controller(QObject):
         if profile is None:
             raise VpnEngineError("No VPN server selected — add one in the VPN tab.")
 
-        tun = bool(self.config.get("vpn_tun", True)) and is_admin()
+        tun_requested = bool(self.config.get("vpn_tun", True))
+        if tun_requested and not is_admin():
+            raise VpnEngineError("TUN mode needs Administrator rights; refusing an unsafe proxy fallback")
+        tun = tun_requested
 
         if tun and awg_engine.amneziawg_path() is not None and profile.protocol in (
             "wireguard",
@@ -918,7 +933,9 @@ class Controller(QObject):
             return profile.name
 
         if self.config.get("vpn_system_proxy", True):
-            self._system_proxy.apply("127.0.0.1", self.vpn.http_port)
+            if not self._system_proxy.apply("127.0.0.1", self.vpn.http_port):
+                self.vpn.stop()
+                raise VpnEngineError("Could not apply the system proxy; VPN was stopped to prevent traffic leaks")
         # Telegram Desktop talks to our local MTProto listener, and the Windows
         # proxy setting cannot redirect what the bridge does upstream — so the
         # bridge is pointed at the tunnel explicitly.

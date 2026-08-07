@@ -88,7 +88,7 @@ def run(app: QApplication, controller: Controller, window: MainWindow) -> None:
     # Meaningful because the config is a fresh one: these are the shipped
     # defaults, not leftovers from an earlier run.
     check("game filter defaults off", controller.game_filter, False)
-    check("fake TLS defaults on", controller.fake_tls, True)
+    check("fake TLS defaults off", controller.fake_tls, False)
 
     # --- game mode card ------------------------------------------------
     window._cb_game.setChecked(True)

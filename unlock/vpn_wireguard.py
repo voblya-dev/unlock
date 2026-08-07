@@ -173,15 +173,22 @@ def looks_like_conf(text: str) -> bool:
 
 
 def _inflate(blob: bytes) -> bytes:
-    """AmneziaVPN prefixes a 4-byte big-endian length, then raw zlib."""
+    """Bounded decompression of an AmneziaVPN payload."""
+    maximum = 4 * 1024 * 1024
     for candidate in (blob[4:], blob):
         for wbits in (15, -15, 47):
             try:
-                return zlib.decompress(candidate, wbits)
+                decoder = zlib.decompressobj(wbits)
+                result = decoder.decompress(candidate, maximum + 1)
+                if decoder.unconsumed_tail or len(result) > maximum:
+                    raise VpnLinkError("vpn:// payload is too large")
+                result += decoder.flush(maximum - len(result))
+                if len(result) > maximum:
+                    raise VpnLinkError("vpn:// payload is too large")
+                return result
             except zlib.error:
                 continue
     raise VpnLinkError("vpn:// payload is not readable")
-
 
 def parse_amnezia_link(raw: str) -> Profile:
     """Decode an AmneziaVPN ``vpn://`` share link."""

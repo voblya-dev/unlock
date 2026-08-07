@@ -97,11 +97,10 @@ def main() -> int:
     if len(sys.argv) > 1:
         return _install(Path(sys.argv[1]).expanduser().resolve())
 
-    pack = _download_pack()
-    try:
-        return _install(pack)
-    finally:
-        shutil.rmtree(ROOT / "_pack", ignore_errors=True)
+    raise SystemExit(
+        "Automatic latest-release download is disabled. Download a release from a trusted "
+        "source, verify its checksum/signature out of band, then pass its extracted path."
+    )
 
 
 if __name__ == "__main__":

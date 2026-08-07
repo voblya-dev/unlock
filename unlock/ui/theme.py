@@ -22,31 +22,34 @@ FONT = "Segoe UI"
 # Each palette is a plain dict so apply() can drop it straight into globals().
 _PALETTES = {
     DARK: {
-        "BG": "#0d1117",
-        "BG_ELEVATED": "#141b24",
-        "CARD": "rgba(255, 255, 255, 0.04)",
-        "CARD_BORDER": "rgba(255, 255, 255, 0.08)",
-        "HOVER": "rgba(255, 255, 255, 0.08)",
-        "PRESSED": "rgba(255, 255, 255, 0.12)",
+        "BG": "#18181a",
+        "BG_ELEVATED": "#1e1e20",
+        # Active sidebar nav item highlight
+        "SIDEBAR_ACTIVE": "#2c2c2e",
+        "CARD": "rgba(255, 255, 255, 0.05)",
+        "CARD_BORDER": "rgba(255, 255, 255, 0.07)",
+        "HOVER": "rgba(255, 255, 255, 0.07)",
+        "PRESSED": "rgba(255, 255, 255, 0.11)",
         "TRACK": "rgba(255, 255, 255, 0.06)",
         "SCROLL": "rgba(255, 255, 255, 0.14)",
         "SCROLL_HOVER": "rgba(255, 255, 255, 0.24)",
-        "CONSOLE_BG": "rgba(0, 0, 0, 0.35)",
-        "TEXT": "#e8edf5",
-        "TEXT_MUTED": "#8b98ab",
-        "TEXT_FAINT": "#5d6879",
-        "ON_ACCENT": "#06101f",
-        "SUCCESS": "#43d18a",
-        "DANGER": "#ff5f6d",
-        "WARNING": "#f5c451",
+        "CONSOLE_BG": "rgba(0, 0, 0, 0.30)",
+        "TEXT": "#f2f2f7",
+        "TEXT_MUTED": "#8e8e93",
+        "TEXT_FAINT": "#5c5c61",
+        "ON_ACCENT": "#ffffff",
+        "SUCCESS": "#32d74b",
+        "DANGER": "#ff453a",
+        "WARNING": "#ffd60a",
         # Power-button body gradient: (idle top, idle bottom, active top, active bottom)
-        "ORB": ((30, 38, 50), (16, 21, 28), (30, 62, 48), (16, 26, 24)),
-        "ORB_EDGE": (255, 255, 255, 18),
-        "RING_TRACK": (255, 255, 255, 20),
+        "ORB": ((30, 30, 32), (18, 18, 20), (28, 58, 44), (16, 26, 22)),
+        "ORB_EDGE": (255, 255, 255, 16),
+        "RING_TRACK": (255, 255, 255, 18),
     },
     LIGHT: {
         "BG": "#f4f6fa",
         "BG_ELEVATED": "#ffffff",
+        "SIDEBAR_ACTIVE": "#e5e5ea",
         "CARD": "rgba(15, 23, 42, 0.03)",
         "CARD_BORDER": "rgba(15, 23, 42, 0.12)",
         "HOVER": "rgba(15, 23, 42, 0.06)",
@@ -71,14 +74,15 @@ _PALETTES = {
 # Accents carry a separate pair per palette: the dark-mode hue is too pale to
 # read as a button fill on white, so light mode gets a deeper one.
 ACCENTS: dict[str, dict] = {
+    "mono":   {"dark": ("#f2f5f7", "#aeb7bf"), "light": ("#20252b", "#4d5762")},
     "blue":   {"dark": ("#5b9dff", "#3f7bd8"), "light": ("#2f6fd0", "#245aad")},
-    "green":  {"dark": ("#43d18a", "#2ba76a"), "light": ("#0f9d58", "#0b7c45")},
-    "purple": {"dark": ("#a78bfa", "#7c5cf0"), "light": ("#6d44d9", "#5734ae")},
-    "orange": {"dark": ("#ffa657", "#e07f2e"), "light": ("#d9711a", "#ad5a15")},
-    "rose":   {"dark": ("#ff7b9c", "#e04d75"), "light": ("#d63a63", "#ad2e4f")},
+    "green":  {"dark": ("#32d74b", "#25a838"), "light": ("#0f9d58", "#0b7c45")},
+    "purple": {"dark": ("#bf5af2", "#9b3dd9"), "light": ("#6d44d9", "#5734ae")},
+    "orange": {"dark": ("#ff9f0a", "#d9820a"), "light": ("#d9711a", "#ad5a15")},
+    "rose":   {"dark": ("#ff375f", "#d92c4a"), "light": ("#d63a63", "#ad2e4f")},
 }
 
-DEFAULT_ACCENT = "blue"
+DEFAULT_ACCENT = "mono"
 
 _mode = DARK
 _accent = DEFAULT_ACCENT
@@ -178,34 +182,99 @@ QWidget {{
     font-size: 13px;
 }}
 
+/* ── Root shell ─────────────────────────────────────── */
 #root {{
     background: {g['BG']};
     border: 1px solid {g['CARD_BORDER']};
     border-radius: 14px;
 }}
 
-#titleBar {{
+/* ── Sidebar ─────────────────────────────────────────── */
+#sidebar {{
     background: {g['BG_ELEVATED']};
-    border-bottom: 1px solid {g['CARD_BORDER']};
+    border-right: 1px solid {g['CARD_BORDER']};
     border-top-left-radius: 13px;
-    border-top-right-radius: 13px;
+    border-bottom-left-radius: 13px;
+}}
+
+#sidebarHeader {{
+    background: transparent;
 }}
 
 #appTitle {{
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 600;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.2px;
+    color: {g['TEXT']};
 }}
 
-#windowButton, #closeButton {{
+/* Search bar container */
+#searchBar {{
+    background: {g['BG']};
+    border: 1px solid {g['CARD_BORDER']};
+    border-radius: 10px;
+}}
+#searchField {{
     background: transparent;
     border: none;
     color: {g['TEXT_MUTED']};
-    font-size: 14px;
+    font-size: 13px;
+    padding: 0;
+}}
+#searchField:focus {{
+    color: {g['TEXT']};
+}}
+/* "/" hotkey badge inside search bar */
+#slashBadge {{
+    background: {g['CARD']};
+    border: 1px solid {g['CARD_BORDER']};
+    border-radius: 5px;
+    color: {g['TEXT_FAINT']};
+    font-size: 11px;
+    padding: 1px 5px;
+    min-width: 14px;
+    max-width: 14px;
+}}
+
+/* Sidebar nav items */
+#navItem {{
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    text-align: left;
+    padding: 9px 12px;
+    color: {g['TEXT_MUTED']};
+    font-size: 13px;
+    font-weight: 500;
+}}
+#navItem:hover {{
+    background: {g['HOVER']};
+    color: {g['TEXT']};
+}}
+#navItemActive {{
+    background: {g['SIDEBAR_ACTIVE']};
+    border: none;
+    border-radius: 10px;
+    text-align: left;
+    padding: 9px 12px;
+    color: {g['TEXT']};
+    font-size: 13px;
+    font-weight: 600;
+}}
+#navItemActive:hover {{
+    background: {g['SIDEBAR_ACTIVE']};
+}}
+
+/* Window control buttons in sidebar header */
+#windowButton, #closeButton {{
+    background: transparent;
+    border: none;
+    color: {g['TEXT_FAINT']};
+    font-size: 13px;
     padding: 0;
 }}
 #windowButton:hover {{
-    background: {g['CARD']};
+    background: {g['HOVER']};
     color: {g['TEXT']};
     border-radius: 4px;
 }}
@@ -215,29 +284,14 @@ QWidget {{
     border-radius: 4px;
 }}
 
-QTabWidget::pane {{
-    border: none;
-}}
-QTabWidget::tab-bar {{
-    alignment: center;
-}}
-QTabBar::tab {{
-    background: transparent;
-    color: {g['TEXT_MUTED']};
-    padding: 9px 20px;
-    margin: 0 2px;
-    border: none;
-    border-bottom: 2px solid transparent;
-    font-weight: 500;
-}}
-QTabBar::tab:hover {{
-    color: {g['TEXT']};
-}}
-QTabBar::tab:selected {{
-    color: {g['ACCENT']};
-    border-bottom: 2px solid {g['ACCENT']};
+/* ── Content area ────────────────────────────────────── */
+#contentArea {{
+    background: {g['BG']};
+    border-top-right-radius: 13px;
+    border-bottom-right-radius: 13px;
 }}
 
+/* ── Cards ───────────────────────────────────────────── */
 #card {{
     background: {g['CARD']};
     border: 1px solid {g['CARD_BORDER']};
@@ -294,6 +348,7 @@ QTabBar::tab:selected {{
     font-size: 11px;
 }}
 
+/* ── Buttons ─────────────────────────────────────────── */
 QPushButton {{
     background: {g['CARD']};
     border: 1px solid {g['CARD_BORDER']};
@@ -314,27 +369,29 @@ QPushButton:disabled {{
     border-color: {g['TRACK']};
 }}
 QPushButton#primary {{
-    background: {g['ACCENT']};
-    border: none;
-    color: {g['ON_ACCENT']};
+    background: transparent;
+    border: 1px solid {g['ACCENT']};
+    color: {g['ACCENT']};
     font-weight: 600;
 }}
 QPushButton#primary:hover {{
-    background: {g['ACCENT_DIM']};
+    background: {g['HOVER']};
+    color: {g['TEXT']};
+    border-color: {g['ACCENT_DIM']};
 }}
 
+/* ── Checkbox / Switch ───────────────────────────────── */
 QCheckBox {{
     spacing: 10px;
     padding: 4px 0;
     background: transparent;
 }}
-/* ui.widgets.Switch paints its own track and knob, so the stock indicator is
-   suppressed rather than styled. */
 QCheckBox::indicator {{
     width: 0;
     height: 0;
 }}
 
+/* ── VPN cards ───────────────────────────────────────── */
 #vpnCard, #vpnCardActive {{
     background: {g['CARD']};
     border: 1px solid {g['CARD_BORDER']};
@@ -347,9 +404,8 @@ QCheckBox::indicator {{
     background: {g['HOVER']};
     border: 1px solid {g['ACCENT']};
 }}
-/* No hover rule for the active card: it is already the highlighted one, and a
-   second highlight makes two servers look selected at once. */
 
+/* ── Drop zone ───────────────────────────────────────── */
 #dropZone, #dropZoneActive {{
     border: 1px dashed {g['CARD_BORDER']};
     border-radius: 10px;
@@ -363,6 +419,7 @@ QCheckBox::indicator {{
     background: {g['HOVER']};
 }}
 
+/* ── Inputs ──────────────────────────────────────────── */
 QComboBox, QLineEdit {{
     background: {g['CARD']};
     border: 1px solid {g['CARD_BORDER']};
@@ -390,6 +447,7 @@ QComboBox QAbstractItemView {{
     outline: none;
 }}
 
+/* ── Progress bar ────────────────────────────────────── */
 QProgressBar {{
     background: {g['TRACK']};
     border: none;
@@ -403,6 +461,7 @@ QProgressBar::chunk {{
     border-radius: 4px;
 }}
 
+/* ── Log view ────────────────────────────────────────── */
 QPlainTextEdit {{
     background: {g['CONSOLE_BG']};
     border: 1px solid {g['CARD_BORDER']};
@@ -415,6 +474,7 @@ QPlainTextEdit {{
     selection-color: {g['ON_ACCENT']};
 }}
 
+/* ── Scroll areas ────────────────────────────────────── */
 QScrollArea, QScrollArea > QWidget > QWidget {{
     background: transparent;
 }}
@@ -438,6 +498,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
     background: transparent;
 }}
 
+/* ── Context menus ───────────────────────────────────── */
 QMenu {{
     background: {g['BG_ELEVATED']};
     border: 1px solid {g['CARD_BORDER']};
@@ -461,3 +522,5 @@ QMenu::separator {{
 
 
 apply(DARK, DEFAULT_ACCENT)
+
+

@@ -461,6 +461,7 @@ async def _handle_client(reader, writer, secret: bytes):
 _server_instance = None
 _server_stop_event = None
 _client_tasks: Set[asyncio.Task] = set()
+_MAX_CLIENTS = 128
 
 
 async def _run(stop_event: Optional[asyncio.Event] = None):
@@ -483,6 +484,10 @@ async def _run(stop_event: Optional[asyncio.Event] = None):
     secret_bytes = bytes.fromhex(proxy_config.secret)
 
     def client_cb(r, w):
+        if len(_client_tasks) >= _MAX_CLIENTS:
+            log.warning("Rejecting local client: connection limit reached")
+            w.close()
+            return
         task = asyncio.create_task(_handle_client(r, w, secret_bytes))
         _client_tasks.add(task)
         task.add_done_callback(_client_tasks.discard)
@@ -511,7 +516,7 @@ async def _run(stop_event: Optional[asyncio.Event] = None):
     log.info("=" * 60)
     log.info("  Telegram MTProto WS Bridge Proxy")
     log.info("  Listening on   %s:%d", proxy_config.host, proxy_config.port)
-    log.info("  Secret:        %s", proxy_config.secret)
+
     if ftls:
         log.info("  Fake TLS:      %s", ftls)
     log.info("  Target DC IPs:")

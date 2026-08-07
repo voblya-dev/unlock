@@ -9,7 +9,7 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSlot,
 )
-from PyQt6.QtGui import QAction, QCloseEvent, QMouseEvent
+from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence, QMouseEvent, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -17,13 +17,14 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
     QSystemTrayIcon,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -36,15 +37,16 @@ from . import anim, i18n, icons, theme
 from .benchmark_dialog import BenchmarkDialog
 from .evolution_dialog import EvolutionDialog
 from .i18n import tr
-from .power_button import PowerButton
+from .polished_aura_button import PolishedAuraButton
 from .vpn_tab import VpnTab
-from .widgets import ColorSwatchPicker, GamepadGlyph, NoScrollComboBox, Switch
+from .widgets import ColorSwatchPicker, GamepadGlyph, NavButton, NoScrollComboBox, Switch
 
 log = logger.get_logger("ui")
 
-_WINDOW_SIZE = (540, 820)
-_MIN_SIZE = (380, 480)
-_TITLE_BAR_H = 34
+_WINDOW_SIZE = (700, 780)
+_MIN_SIZE = (480, 480)
+_HEADER_H = 46
+_SIDEBAR_W = 200
 _RESIZE_MARGIN = 10
 _CORNER_GRIP = 20
 _CORNER_RADIUS = 14
@@ -162,9 +164,7 @@ class MainWindow(QWidget):
 
     def _build_ui(self) -> None:
         self._outer = QVBoxLayout(self)
-        # The margin is the grab band: with the shell flush to the frame every
-        # edge pixel belongs to a child widget, which eats the press before this
-        # window sees it and makes the frame unresizable.
+        # The margin is the grab band so resize grips can intercept edge presses.
         self._outer.setContentsMargins(*([_RESIZE_MARGIN] * 4))
         self._outer.setSpacing(0)
 
@@ -173,87 +173,244 @@ class MainWindow(QWidget):
         shell.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._outer.addWidget(shell)
 
-        root = QVBoxLayout(shell)
+        # Root is split horizontally: sidebar on left, content on right.
+        root = QHBoxLayout(shell)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_title_bar())
+        root.addWidget(self._build_sidebar())
+        root.addWidget(self._build_right_panel(), 1)
 
-        self._tabs = QTabWidget()
-        self._populate_tabs()
-        # Connected outside _populate_tabs: a language change rebuilds the pages
-        # and would otherwise stack a second connection on the same signal.
-        self._tabs.currentChanged.connect(self._on_tab_changed)
-        root.addWidget(self._tabs, 1)
+    # ── Sidebar ────────────────────────────────────────────────────────────
 
-    def _populate_tabs(self) -> None:
-        self._tabs.addTab(self._build_home_tab(), tr("Home"))
+    def _build_sidebar(self) -> QWidget:
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        sidebar.setFixedWidth(_SIDEBAR_W)
+
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(10, 10, 10, 16)
+        layout.setSpacing(0)
+
+        layout.addWidget(self._build_sidebar_header())
+        layout.addSpacing(8)
+        layout.addWidget(self._build_search_bar())
+        layout.addSpacing(12)
+        layout.addWidget(self._build_nav_list())
+        layout.addStretch(1)
+
+        return sidebar
+
+    def _build_sidebar_header(self) -> QWidget:
+        """App icon + name + window control buttons (− ✕)."""
+        header = QWidget()
+        header.setObjectName("sidebarHeader")
+        header.setFixedHeight(_HEADER_H)
+
+        row = QHBoxLayout(header)
+        row.setContentsMargins(4, 0, 4, 0)
+        row.setSpacing(4)
+
+        # App icon (small pixmap from the tray icon factory)
+        from . import icons as _icons
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(_icons.make_icon(theme.ACCENT, 22).pixmap(22, 22))
+        icon_lbl.setFixedSize(22, 22)
+        row.addWidget(icon_lbl)
+
+        title = QLabel(APP_NAME)
+        title.setObjectName("appTitle")
+        title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        title.setMinimumWidth(0)
+        row.addWidget(title, 1)
+
+        minimize = QPushButton("−")
+        minimize.setObjectName("windowButton")
+        minimize.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        minimize.setFixedSize(24, 22)
+        minimize.setToolTip(tr("Minimise"))
+        minimize.clicked.connect(self._minimise)
+        row.addWidget(minimize)
+
+        close = QPushButton("✕")
+        close.setObjectName("closeButton")
+        close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        close.setFixedSize(24, 22)
+        close.clicked.connect(self.close)
+        row.addWidget(close)
+
+        return header
+
+    def _build_search_bar(self) -> QWidget:
+        """Search field with '/' hotkey badge. Pressing '/' focuses the field."""
+        container = QWidget()
+        container.setObjectName("searchBar")
+        container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        container.setFixedHeight(34)
+
+        row = QHBoxLayout(container)
+        row.setContentsMargins(10, 0, 8, 0)
+        row.setSpacing(6)
+
+        # Search icon (magnifying glass via unicode)
+        loup = QLabel("⌕")
+        loup.setObjectName("hint")
+        loup.setStyleSheet("font-size: 18px;")
+        loup.setFixedWidth(20)
+        row.addWidget(loup)
+
+        self._search = QLineEdit()
+        self._search.setObjectName("searchField")
+        self._search.setPlaceholderText(tr("Search"))
+        self._search.setFrame(False)
+        self._search.textChanged.connect(self._filter_nav)
+        self._search.returnPressed.connect(self._search_commit)
+        row.addWidget(self._search, 1)
+
+        # '/' key focuses the search field (while it is not already focused)
+        shortcut = QShortcut(QKeySequence("/"), self)
+        shortcut.activated.connect(self._focus_search)
+
+        return container
+
+    def _focus_search(self) -> None:
+        if not self._search.hasFocus():
+            self._search.setFocus()
+            self._search.selectAll()
+
+    def _filter_nav(self, text: str) -> None:
+        q = text.strip().lower()
+        for btn in self._nav_buttons:
+            btn.setVisible(not q or q in btn.text().lower())
+
+    def _search_commit(self) -> None:
+        q = self._search.text().strip().lower()
+        if not q:
+            return
+        for page_idx in range(self._pages.count()):
+            root = self._pages.widget(page_idx)
+            # Settings page is wrapped in QScrollArea — unwrap to reach content
+            if isinstance(root, QScrollArea):
+                root = root.widget()
+            if root is None:
+                continue
+            matches: list = []
+            for w in root.findChildren(QWidget):
+                texts: list[str] = []
+                try:
+                    t = w.text()
+                    if t:
+                        texts.append(t)
+                except AttributeError:
+                    pass
+                try:
+                    t = w.toolTip()
+                    if t:
+                        texts.append(t)
+                except AttributeError:
+                    pass
+                if any(q in t.lower() for t in texts):
+                    matches.append(w)
+            if matches:
+                self._set_nav_page(page_idx)
+                self._search.clear()
+                for btn in self._nav_buttons:
+                    btn.setVisible(True)
+                self._highlight_labels(matches)
+                return
+
+    def _highlight_labels(self, widgets: list) -> None:
+        from .widgets import Switch
+        orig: dict = {}
+        for w in widgets:
+            if isinstance(w, Switch):
+                w.highlight(1800)
+            else:
+                orig[w] = w.styleSheet()
+                w.setStyleSheet((w.styleSheet() or "") + f"; color: {theme.ACCENT};")
+        def _revert() -> None:
+            for w, st in orig.items():
+                w.setStyleSheet(st)
+        QTimer.singleShot(1800, _revert)
+
+    def _build_nav_list(self) -> QWidget:
+        """Vertical list of sidebar navigation buttons."""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        nav_defs = [
+            ("home",   tr("Home")),
+            ("shield", tr("VPN")),
+            ("gear",   tr("Settings")),
+            ("list",   tr("Logs")),
+        ]
+        self._nav_buttons: list[NavButton] = []
+        for i, (icon, label) in enumerate(nav_defs):
+            btn = NavButton(icon, label)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.clicked.connect(lambda checked=False, idx=i: self._set_nav_page(idx))
+            layout.addWidget(btn)
+            self._nav_buttons.append(btn)
+
+        # Home is selected by default
+        self._nav_buttons[0].set_active(True)
+        return container
+
+    def _set_nav_page(self, index: int) -> None:
+        """Switch the content stack and update active nav button."""
+        for i, btn in enumerate(self._nav_buttons):
+            btn.set_active(i == index)
+        self._pages.setCurrentIndex(index)
+
+    # ── Right panel ────────────────────────────────────────────────────────
+
+    def _build_right_panel(self) -> QWidget:
+        """Content area: stacked pages for each nav section."""
+        panel = QWidget()
+        panel.setObjectName("contentArea")
+        panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._pages = QStackedWidget()
+        self._populate_pages()
+        layout.addWidget(self._pages, 1)
+        return panel
+
+    def _populate_pages(self) -> None:
+        self._pages.addWidget(self._build_home_tab())
         self._vpn_tab = VpnTab(self._controller)
         self._vpn_tab.changed.connect(self._on_vpn_changed)
-        self._tabs.addTab(self._vpn_tab, tr("VPN"))
-        self._tabs.addTab(self._build_settings_tab(), tr("Settings"))
-        self._tabs.addTab(self._build_logs_tab(), tr("Logs"))
+        self._pages.addWidget(self._vpn_tab)
+        self._pages.addWidget(self._build_settings_tab())
+        self._pages.addWidget(self._build_logs_tab())
 
     def _rebuild_tabs(self) -> None:
-        """Recreate every tab so freshly translated labels take effect."""
-        current = self._tabs.currentIndex()
+        """Recreate every page so freshly translated labels take effect."""
+        current = self._pages.currentIndex()
         history = self._log_view.toPlainText()
 
         self._log_timer.stop()
         logger.unsubscribe(self._pending_logs.append)
-        while self._tabs.count():
-            page = self._tabs.widget(0)
-            self._tabs.removeTab(0)
+        while self._pages.count():
+            page = self._pages.widget(0)
+            self._pages.removeWidget(page)
             page.deleteLater()
 
-        self._populate_tabs()
+        self._populate_pages()
         self._log_view.setPlainText(history)
-        self._tabs.setCurrentIndex(current)
+        self._pages.setCurrentIndex(current)
+        # Re-sync nav button labels after language change
+        nav_labels = [tr("Home"), tr("VPN"), tr("Settings"), tr("Logs")]
+        for btn, label in zip(self._nav_buttons, nav_labels):
+            btn.setText(label)
         self._load_settings_into_ui()
         self._apply_state(self._controller.state)
-
-    def _build_title_bar(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("titleBar")
-        bar.setFixedHeight(_TITLE_BAR_H)
-
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 0, 5, 0)
-        layout.setSpacing(6)
-
-        title = QLabel(APP_NAME)
-        title.setObjectName("appTitle")
-        layout.addWidget(title)
-
-        version = QLabel(f"v{APP_VERSION}")
-        version.setObjectName("hint")
-        layout.addWidget(version)
-        layout.addStretch(1)
-
-        minimize = QPushButton("–")
-        minimize.setObjectName("windowButton")
-        minimize.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        minimize.setFixedSize(26, 24)
-        minimize.setToolTip(tr("Minimise"))
-        minimize.clicked.connect(self._minimise)
-        layout.addWidget(minimize)
-
-        self._maximize = QPushButton("□")
-        self._maximize.setObjectName("windowButton")
-        self._maximize.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._maximize.setFixedSize(26, 24)
-        self._maximize.setToolTip(tr("Maximise"))
-        self._maximize.clicked.connect(self._toggle_maximised)
-        layout.addWidget(self._maximize)
-
-        close = QPushButton("×")
-        close.setObjectName("closeButton")
-        close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        close.setFixedSize(26, 24)
-        close.clicked.connect(self.close)
-        layout.addWidget(close)
-
-        return bar
 
     def _build_home_tab(self) -> QWidget:
         page = QWidget()
@@ -263,7 +420,7 @@ class MainWindow(QWidget):
 
         layout.addStretch(1)
 
-        self._power = PowerButton()
+        self._power = PolishedAuraButton(size=250)
         self._power.clicked.connect(self._on_power_clicked)
         holder = QHBoxLayout()
         holder.addStretch(1)
@@ -1064,10 +1221,6 @@ class MainWindow(QWidget):
     def _on_vpn_changed(self) -> None:
         self._refresh_metrics()
 
-    @pyqtSlot(int)
-    def _on_tab_changed(self, _index: int) -> None:
-        pass
-
     def _restyle(self) -> None:
         """Re-derive the palette and repaint everything that caches a colour."""
         cfg = self._controller.config
@@ -1088,6 +1241,9 @@ class MainWindow(QWidget):
         self._vpn_tab.restyle()
         self._power.restyle()
         self._game_glyph.update()
+        # Nav buttons paint icons using theme colours — force a repaint.
+        for btn in self._nav_buttons:
+            btn.update()
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -1158,7 +1314,7 @@ class MainWindow(QWidget):
         margin = 0 if self.isMaximized() else _RESIZE_MARGIN
         self._outer.setContentsMargins(*([margin] * 4))
         self._layout_grips()
-        self._maximize.setText("❐" if self.isMaximized() else "□")
+        pass  # maximize button removed
 
     def _layout_grips(self) -> None:
         """Place the resize strips along the frame and raise them above the UI."""
@@ -1190,7 +1346,10 @@ class MainWindow(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         position = event.position().toPoint()
-        if position.y() <= _RESIZE_MARGIN + _TITLE_BAR_H and not self.isMaximized():
+        # Drag zone: entire top strip of the window — child buttons consume
+        # their own clicks so startSystemMove only fires on empty space.
+        in_header = position.y() <= _RESIZE_MARGIN + _HEADER_H
+        if in_header and not self.isMaximized():
             handle = self.windowHandle()
             if handle is not None:
                 handle.startSystemMove()
@@ -1206,3 +1365,13 @@ class MainWindow(QWidget):
         # Closing hides to tray; Quit in the tray menu is the real exit.
         event.ignore()
         self.hide()
+
+
+
+
+
+
+
+
+
+

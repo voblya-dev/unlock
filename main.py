@@ -21,7 +21,7 @@ from unlock import logger
 from unlock.config import Config
 from unlock.constants import APP_NAME
 from unlock.controller import Controller
-from unlock.defender import add_exclusion
+from unlock.defender import remove_legacy_exclusion
 from unlock.dpi_engine import is_admin
 from unlock.ui import i18n, icons, theme
 from unlock.ui.main_window import MainWindow
@@ -99,7 +99,7 @@ def main() -> int:
             "elevation to load the WinDivert driver. The Telegram tunnel still works."
         )
     else:
-        add_exclusion()
+        remove_legacy_exclusion()
 
     controller = Controller()
     window = MainWindow(controller)
