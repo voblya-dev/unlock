@@ -31,6 +31,10 @@ _PALETTES = {
         "HOVER": "rgba(255, 255, 255, 0.07)",
         "PRESSED": "rgba(255, 255, 255, 0.11)",
         "TRACK": "rgba(255, 255, 255, 0.06)",
+        # Switches use a bright, solid off-state so the monochrome accent does
+        # not turn the whole control into one indistinguishable white blob.
+        "SWITCH_OFF": "#f2f2f7",
+        "SWITCH_KNOB_OFF": "#111214",
         "SCROLL": "rgba(255, 255, 255, 0.14)",
         "SCROLL_HOVER": "rgba(255, 255, 255, 0.24)",
         "CONSOLE_BG": "rgba(0, 0, 0, 0.30)",
@@ -55,6 +59,8 @@ _PALETTES = {
         "HOVER": "rgba(15, 23, 42, 0.06)",
         "PRESSED": "rgba(15, 23, 42, 0.10)",
         "TRACK": "rgba(15, 23, 42, 0.08)",
+        "SWITCH_OFF": "#ffffff",
+        "SWITCH_KNOB_OFF": "#16202e",
         "SCROLL": "rgba(15, 23, 42, 0.18)",
         "SCROLL_HOVER": "rgba(15, 23, 42, 0.30)",
         "CONSOLE_BG": "rgba(15, 23, 42, 0.04)",
@@ -149,6 +155,21 @@ def is_custom_hex(value: str) -> bool:
     """True for a #rrggbb / #rgb user-supplied colour, false for a named accent key."""
     import re
     return bool(re.fullmatch(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", value.strip()))
+
+
+def contrast_color(value: str) -> str:
+    """Return a readable black/white foreground for an accent colour."""
+    colour = qcolor(value)
+    # Relative luminance is more useful here than Qt's lightness for bright
+    # yellow/green accents, which otherwise get a washed-out white knob.
+    channels = []
+    for channel in (colour.red(), colour.green(), colour.blue()):
+        linear = channel / 255.0
+        channels.append(linear / 12.92 if linear <= 0.04045 else ((linear + 0.055) / 1.055) ** 2.4)
+    luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+    # This is the crossover where black produces a higher WCAG contrast ratio
+    # than white against the accent.
+    return "#111214" if luminance >= 0.18 else "#ffffff"
 
 
 def apply(preference: str = SYSTEM, accent: str = DEFAULT_ACCENT) -> str:
@@ -507,11 +528,13 @@ QMenu {{
 }}
 QMenu::item {{
     padding: 7px 22px 7px 14px;
+    border: 1px solid transparent;
     border-radius: 6px;
 }}
 QMenu::item:selected {{
-    background: {g['ACCENT_DIM']};
-    color: {g['ON_ACCENT']};
+    background: transparent;
+    border-color: {g['ACCENT']};
+    color: {g['TEXT']};
 }}
 QMenu::separator {{
     height: 1px;

@@ -202,7 +202,7 @@ DEFAULT_CONFIG: dict = {
     "benchmark_results": {},
     "evolution_results": {},     # last genetic search summary
     "theme": "system",           # system | dark | light
-    "accent": "blue",            # key from ui.theme.ACCENTS
+    "accent": "mono",            # key from ui.theme.ACCENTS (white/black)
     "language": "system",        # system | en | ru
     "sounds": True,              # chime on connect / disconnect
     # --- custom VPN

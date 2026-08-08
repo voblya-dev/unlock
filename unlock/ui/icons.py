@@ -16,7 +16,7 @@ from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from ..constants import BASE_DIR
 from . import theme
 
-_ICO_PATH = BASE_DIR / "assets" / "unlock.ico"
+_ICO_PATH = BASE_DIR / "assets" / "unlock-white.ico"
 
 
 def make_icon(color: str, size: int = 64) -> QIcon:
@@ -56,17 +56,28 @@ def app_icon() -> QIcon:
     return make_icon(theme.ACCENT)
 
 
+def app_mark_pixmap(color: str, size: int) -> QPixmap:
+    """The app mark recoloured as a single solid foreground, with no backdrop."""
+    pixmap = app_icon().pixmap(size, size)
+    painter = QPainter(pixmap)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(pixmap.rect(), QColor(color))
+    painter.end()
+    return pixmap
+
+
 def icon_active() -> QIcon:
-    return make_icon(theme.SUCCESS)
+    """The application shield is used in the tray for every connection state."""
+    return app_icon()
 
 
 def icon_idle() -> QIcon:
-    return make_icon(theme.TEXT_FAINT)
+    return app_icon()
 
 
 def icon_busy() -> QIcon:
-    return make_icon(theme.ACCENT)
+    return app_icon()
 
 
 def icon_error() -> QIcon:
-    return make_icon(theme.DANGER)
+    return app_icon()

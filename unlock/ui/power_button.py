@@ -40,14 +40,17 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import (
     QColor,
     QConicalGradient,
+    QIcon,
     QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
     QRadialGradient,
+    QPixmap,
 )
 from PyQt6.QtWidgets import QWidget
 
+from ..constants import BASE_DIR
 from ..controller import State
 from . import anim, theme
 
@@ -66,6 +69,8 @@ _SWEEP_MIN_SPAN = 0.34
 _FILL_RATE = 2500.0
 _DRAIN_RATE = 950.0
 _BUSY_STATES = (State.CONNECTING, State.DISCONNECTING, State.BENCHMARKING)
+_MARK_PATH = BASE_DIR / "assets" / "unlock.png"
+_FILL_MASK_PATH = BASE_DIR / "assets" / "unlock-fill.png"
 
 
 class PowerButton(QWidget):
@@ -92,6 +97,9 @@ class PowerButton(QWidget):
         # Strokes are in absolute pixels, so a smaller button scales them or it
         # ends up mostly outline.
         self._scale = size / _SIZE
+        # The exact transparent mark used by Explorer, the window and the tray.
+        self._mark = QPixmap(str(_MARK_PATH))
+        self._fill_mask = QPixmap(str(_FILL_MASK_PATH))
         self._rest_curves: dict[QPropertyAnimation, QEasingCurve.Type] = {}
         self._out_durations: dict[QPropertyAnimation, int] = {}
 
@@ -390,7 +398,7 @@ class PowerButton(QWidget):
         Built from the radius rather than fixed points so the same path serves
         every button size.
         """
-        half_w = radius * 0.78
+        half_w = radius * 0.82
         top = center.y() - radius * 0.92
         shoulder = center.y() - radius * 0.42
         tip = center.y() + radius * 1.0
@@ -418,19 +426,85 @@ class PowerButton(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         center = QPointF(self.width() / 2, self.height() / 2)
         accent = QColor(self._colour)
         outer = min(self.width(), self.height()) / 2 - 3 * self._scale
-        radius = (outer - _RIM_WIDTH * self._scale * 2) * 0.86 * (1.0 - 0.04 * self._press)
+        radius = outer * 0.86 * (1.0 - 0.04 * self._press)
 
+        # The state animation sits behind the actual application mark. This
+        # keeps the button pixel-for-pixel recognisable as the same shield while
+        # the protected area fills and drains underneath it.
         self._paint_halo(painter, center, outer, accent)
-        self._paint_rim(painter, center, outer, accent)
+        target = self._mark_target(center, outer)
+        self._paint_exact_fill(painter, target, accent)
+        self._paint_mark(painter, target)
 
-        shield = self._shield(center, radius)
-        self._paint_shield_bed(painter, shield, accent)
-        self._paint_fill(painter, shield, center, radius, accent)
-        self._paint_shield_edge(painter, shield, accent)
+    def _mark_target(self, center: QPointF, outer: float) -> QRectF:
+        side = outer * 2.26 * (1.0 - 0.04 * self._press)
+        return QRectF(center.x() - side / 2, center.y() - side / 2, side, side)
+
+    def _paint_mark(self, painter: QPainter, target: QRectF) -> None:
+        """Draw the exact transparent shield asset used by the app icon."""
+        if self._mark.isNull():
+            return
+        painter.drawPixmap(target.toRect(), self._mark)
+
+    def _paint_exact_fill(self, painter: QPainter, target: QRectF, accent: QColor) -> None:
+        """Fill the icon's flood-filled interior mask, never its outer contour."""
+        if self._level <= 0.005 or self._fill_mask.isNull():
+            return
+
+        layer = QPixmap(self.size())
+        layer.fill(Qt.GlobalColor.transparent)
+        fill = QPainter(layer)
+        fill.setRenderHint(QPainter.RenderHint.Antialiasing)
+        fill.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        surface = target.bottom() - target.height() * self._level
+        gradient = QLinearGradient(QPointF(0, surface), QPointF(0, target.bottom()))
+        top = QColor(accent)
+        top.setAlphaF(0.90)
+        bottom = QColor(accent)
+        bottom.setAlphaF(0.42)
+        gradient.setColorAt(0.0, top)
+        gradient.setColorAt(1.0, bottom)
+        fill.setBrush(gradient)
+        fill.setPen(Qt.PenStyle.NoPen)
+
+        wave = QPainterPath()
+        phase = self._wave * math.tau
+        amplitude = target.height() * 0.018 * self._wave_amp
+        steps = 30
+        for index in range(steps + 1):
+            fraction = index / steps
+            x = target.left() + target.width() * fraction
+            y = surface + amplitude * (
+                math.sin(phase + fraction * math.tau)
+                + 0.5 * math.sin(phase * 1.7 + fraction * math.tau * 2)
+            )
+            if index == 0:
+                wave.moveTo(x, y)
+            else:
+                wave.lineTo(x, y)
+        wave.lineTo(target.right(), target.bottom())
+        wave.lineTo(target.left(), target.bottom())
+        wave.closeSubpath()
+        fill.drawPath(wave)
+
+        if self._level < 0.995:
+            fill.setBrush(Qt.BrushStyle.NoBrush)
+            fill.setPen(QPen(QColor(255, 255, 255, 150), 2 * self._scale))
+            fill.drawPath(wave)
+
+        # DestinationIn retains only the opaque interior discovered from the
+        # exact icon pixels. The black outline and Wi-Fi glyph are painted over
+        # this layer afterwards by _paint_mark.
+        fill.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        fill.drawPixmap(target.toRect(), self._fill_mask)
+        fill.end()
+        painter.drawPixmap(0, 0, layer)
 
     def _paint_halo(self, painter: QPainter, center: QPointF, outer: float,
                     accent: QColor) -> None:
@@ -564,12 +638,42 @@ class PowerButton(QWidget):
         painter.setBrush(body)
         painter.drawPath(self._surface_path(box, surface, radius))
 
-        # A brighter line riding the surface, so the fill has a waterline rather
-        # than fading into the bed.
-        line = QColor(255, 255, 255, 150)
+        # A brighter line rides the moving surface while filling. At 100% it
+        # would sit against the icon's outer contour, so omit it once the shield
+        # is full instead of letting a pale seam escape around the black edge.
+        if self._level < 0.995:
+            line = QColor(255, 255, 255, 150)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(line, 2 * self._scale))
+            painter.drawPath(self._surface_path(box, surface, radius, line_only=True))
+        painter.restore()
+
+    def _paint_wifi(self, painter: QPainter, center: QPointF, radius: float) -> None:
+        """Paint the signal bands without replacing the glyph between states."""
+        # A quiet silver mark on the idle bed becomes a white signal above the
+        # accent fill. Blending follows ``level`` instead of flashing at the end.
+        idle = QColor(theme.TEXT_MUTED)
+        lit = QColor(theme.ON_ACCENT)
+        signal = anim.blend(idle, lit, min(1.0, self._level * 1.35))
+        signal.setAlphaF(0.42 + 0.54 * max(self._level, self._glow * 0.55))
+
+        painter.save()
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(line, 2 * self._scale))
-        painter.drawPath(self._surface_path(box, surface, radius, line_only=True))
+        width = radius * 0.135
+        painter.setPen(QPen(signal, width, cap=Qt.PenCapStyle.RoundCap))
+
+        # A negative sweep crosses the top half and produces Wi-Fi arches.
+        cx = center.x()
+        cy = center.y() + radius * 0.29
+        for scale, rise in ((0.58, 0.58), (0.40, 0.40), (0.23, 0.23)):
+            r = radius * scale
+            box = QRectF(cx - r, cy - r * rise, r * 2, r * 2)
+            painter.drawArc(box, 135 * 16, -90 * 16)
+
+        painter.setBrush(signal)
+        painter.setPen(Qt.PenStyle.NoPen)
+        dot = radius * 0.105
+        painter.drawEllipse(QPointF(cx, cy + radius * 0.06), dot, dot)
         painter.restore()
 
     def _surface_path(self, box: QRectF, surface: float, radius: float,

@@ -69,8 +69,10 @@ binaries_and_data.append(
 
 # The window and taskbar icon is loaded from this file at runtime, not only
 # stamped into the exe header by the EXE(icon=...) argument below.
-if (ROOT / "assets" / "unlock.ico").exists():
-    binaries_and_data.append((str(ROOT / "assets" / "unlock.ico"), "assets"))
+for asset in ("unlock.png", "unlock.ico", "unlock-white.ico", "unlock-fill.png"):
+    path = ROOT / "assets" / asset
+    if path.exists():
+        binaries_and_data.append((str(path), "assets"))
 
 a = Analysis(
     ["main.py"],
@@ -99,7 +101,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     uac_admin=True,             # WinDivert driver load requires elevation
-    icon="assets/unlock.ico" if (ROOT / "assets" / "unlock.ico").exists() else None,
+    icon="assets/unlock-white.ico" if (ROOT / "assets" / "unlock-white.ico").exists() else None,
 )
 
 coll = COLLECT(

@@ -37,7 +37,7 @@ from . import anim, i18n, icons, theme
 from .benchmark_dialog import BenchmarkDialog
 from .evolution_dialog import EvolutionDialog
 from .i18n import tr
-from .polished_aura_button import PolishedAuraButton
+from .power_button import PowerButton
 from .vpn_tab import VpnTab
 from .widgets import ColorSwatchPicker, GamepadGlyph, NavButton, NoScrollComboBox, Switch
 
@@ -215,8 +215,8 @@ class MainWindow(QWidget):
         # App icon (small pixmap from the tray icon factory)
         from . import icons as _icons
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(_icons.make_icon(theme.ACCENT, 22).pixmap(22, 22))
-        icon_lbl.setFixedSize(22, 22)
+        icon_lbl.setPixmap(_icons.app_mark_pixmap("#ffffff", 32))
+        icon_lbl.setFixedSize(32, 32)
         row.addWidget(icon_lbl)
 
         title = QLabel(APP_NAME)
@@ -420,7 +420,7 @@ class MainWindow(QWidget):
 
         layout.addStretch(1)
 
-        self._power = PolishedAuraButton(size=250)
+        self._power = PowerButton(size=250)
         self._power.clicked.connect(self._on_power_clicked)
         holder = QHBoxLayout()
         holder.addStretch(1)

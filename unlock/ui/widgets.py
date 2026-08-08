@@ -151,7 +151,7 @@ class Switch(QCheckBox):
         track = QRectF(0, top, _TRACK_W, _TRACK_H)
         enabled = self.isEnabled()
 
-        off = theme.qcolor(theme.TRACK)
+        off = theme.qcolor(theme.SWITCH_OFF)
         on = theme.qcolor(theme.ACCENT)
         fill = anim.blend(off, on, self._pos)
         if not enabled:
@@ -166,7 +166,11 @@ class Switch(QCheckBox):
 
         travel = _TRACK_W - _TRACK_H
         centre_x = _TRACK_H / 2 + travel * self._pos
-        knob = theme.qcolor(theme.ON_ACCENT if self._pos > 0.5 else theme.TEXT_MUTED)
+        knob = theme.qcolor(
+            theme.contrast_color(theme.ACCENT)
+            if self._pos > 0.5
+            else theme.SWITCH_KNOB_OFF
+        )
         if not enabled:
             knob.setAlphaF(0.5)
         painter.setPen(Qt.PenStyle.NoPen)
