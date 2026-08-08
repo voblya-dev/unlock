@@ -569,6 +569,35 @@ def _paint_nav_icon(
                 QPointF(cx + h * 0.70, cy + dy),
             )
 
+    elif icon == "split":
+        # Two diverging arrows from a single origin — represents split tunneling.
+        import math
+        pen2 = QPen(color, max(1.3, sz * 0.085), Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen2)
+        ox, oy = cx - h * 0.65, cy          # left origin
+        # Upper branch
+        ux, uy = cx + h * 0.65, cy - h * 0.55
+        painter.drawLine(QPointF(ox, oy), QPointF(ux, uy))
+        # Arrowhead upper
+        ang = math.atan2(uy - oy, ux - ox)
+        for da in (math.radians(145), math.radians(-145)):
+            painter.drawLine(
+                QPointF(ux, uy),
+                QPointF(ux + h * 0.28 * math.cos(ang + da),
+                        uy + h * 0.28 * math.sin(ang + da)),
+            )
+        # Lower branch
+        lx, ly = cx + h * 0.65, cy + h * 0.55
+        painter.drawLine(QPointF(ox, oy), QPointF(lx, ly))
+        ang2 = math.atan2(ly - oy, lx - ox)
+        for da in (math.radians(145), math.radians(-145)):
+            painter.drawLine(
+                QPointF(lx, ly),
+                QPointF(lx + h * 0.28 * math.cos(ang2 + da),
+                        ly + h * 0.28 * math.sin(ang2 + da)),
+            )
+
     else:
         # Fallback: a simple circle
         painter.drawEllipse(QRectF(cx - h * 0.60, cy - h * 0.60,

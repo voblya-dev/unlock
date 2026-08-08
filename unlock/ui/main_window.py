@@ -38,6 +38,7 @@ from .benchmark_dialog import BenchmarkDialog
 from .evolution_dialog import EvolutionDialog
 from .i18n import tr
 from .power_button import PowerButton
+from .split_tunnel_tab import SplitTunnelTab
 from .vpn_tab import VpnTab
 from .widgets import ColorSwatchPicker, GamepadGlyph, NavButton, NoScrollComboBox, Switch
 
@@ -344,6 +345,7 @@ class MainWindow(QWidget):
         nav_defs = [
             ("home",   tr("Home")),
             ("shield", tr("VPN")),
+            ("split",  tr("Tunneling")),
             ("gear",   tr("Settings")),
             ("list",   tr("Logs")),
         ]
@@ -383,12 +385,14 @@ class MainWindow(QWidget):
         return panel
 
     def _populate_pages(self) -> None:
-        self._pages.addWidget(self._build_home_tab())
+        self._pages.addWidget(self._build_home_tab())       # 0
         self._vpn_tab = VpnTab(self._controller)
         self._vpn_tab.changed.connect(self._on_vpn_changed)
-        self._pages.addWidget(self._vpn_tab)
-        self._pages.addWidget(self._build_settings_tab())
-        self._pages.addWidget(self._build_logs_tab())
+        self._pages.addWidget(self._vpn_tab)                # 1
+        self._split_tab = SplitTunnelTab(self._controller.split_tunnel)
+        self._pages.addWidget(self._split_tab)              # 2
+        self._pages.addWidget(self._build_settings_tab())   # 3
+        self._pages.addWidget(self._build_logs_tab())       # 4
 
     def _rebuild_tabs(self) -> None:
         """Recreate every page so freshly translated labels take effect."""
@@ -406,7 +410,7 @@ class MainWindow(QWidget):
         self._log_view.setPlainText(history)
         self._pages.setCurrentIndex(current)
         # Re-sync nav button labels after language change
-        nav_labels = [tr("Home"), tr("VPN"), tr("Settings"), tr("Logs")]
+        nav_labels = [tr("Home"), tr("VPN"), tr("Tunneling"), tr("Settings"), tr("Logs")]
         for btn, label in zip(self._nav_buttons, nav_labels):
             btn.setText(label)
         self._load_settings_into_ui()
@@ -1239,6 +1243,7 @@ class MainWindow(QWidget):
         # Tray icons and the latency label paint from palette constants directly.
         self._apply_state(self._controller.state)
         self._vpn_tab.restyle()
+        self._split_tab.restyle()
         self._power.restyle()
         self._game_glyph.update()
         # Nav buttons paint icons using theme colours — force a repaint.

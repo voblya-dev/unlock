@@ -33,6 +33,7 @@ from . import awg_engine
 from .awg_engine import AwgEngine
 from .vpn_links import Profile
 from . import telegram_client
+from .split_tunnel import SplitTunnelingManager
 
 log = get_logger("controller")
 
@@ -392,6 +393,7 @@ class Controller(QObject):
         super().__init__()
         self.config = Config()
         sounds.set_enabled(self.config.get("sounds", True))
+        self.split_tunnel = SplitTunnelingManager(self.config)
         self.dpi = DpiEngine()
         self.telegram = TelegramProxy(TELEGRAM_PROXY_PORT)
         self.vpn = VpnEngine()
@@ -913,18 +915,26 @@ class Controller(QObject):
             raise VpnEngineError("TUN mode needs Administrator rights; refusing an unsafe proxy fallback")
         tun = tun_requested
 
-        if tun and awg_engine.amneziawg_path() is not None and profile.protocol in (
-            "wireguard",
-            "amneziawg",
+        split_has_rules = (
+            self.split_tunnel.enabled
+            and bool(self.split_tunnel.singbox_route_rules())
+        )
+        if (
+            tun
+            and not split_has_rules
+            and awg_engine.amneziawg_path() is not None
+            and profile.protocol in ("wireguard", "amneziawg")
         ):
             # Amnezia's own client drives a real Wintun adapter, so UDP crosses
             # the tunnel — Discord voice, games, QUIC. The wireproxy+sing-box
             # pairing below cannot do that: it hands traffic over via SOCKS,
             # which carries TCP only.
+            # When split tunneling rules are active we fall through to sing-box
+            # because the native AWG client has no routing rule support.
             self.awg.start(profile)
             return profile.name
 
-        self.vpn.start(profile, tun=tun)
+        self.vpn.start(profile, tun=tun, split=self.split_tunnel if tun else None)
 
         if tun:
             # The adapter already carries every app, including the ones that

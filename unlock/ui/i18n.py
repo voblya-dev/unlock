@@ -311,6 +311,33 @@ _RU: dict[str, str] = {
         "Перезапустите от имени администратора — WinDivert требует прав.",
     "Still finishing the cancelled test — try again in a moment.":
         "Отменённая проверка ещё завершается — повторите через мгновение.",
+    # --- sidebar misc
+    "Tunneling": "Туннелирование",
+    "Search": "Поиск",
+    # --- split tunneling tab
+    "Split Tunneling": "Раздельное туннелирование",
+    "Enable": "Включить",
+    "Control which apps, websites, or IPs go through the VPN. "
+    "Blacklist: everything tunnelled except chosen. "
+    "Whitelist: only chosen goes through the VPN.":
+        "Выберите приложения, сайты или IP, которые пойдут через VPN. "
+        "Блоклист: всё идёт через VPN, кроме выбранных. "
+        "Белый список: через VPN идут только выбранные.",
+    "Mode": "Режим",
+    "Blacklist": "Блоклист",
+    "Whitelist": "Белый список",
+    "Apps": "Приложения",
+    "Domains": "Домены",
+    "IPs": "IP-адреса",
+    "+ Add application": "+ Добавить приложение",
+    "example.com or *.example.com": "example.com или *.example.com",
+    "192.168.1.0/24 or 1.2.3.4": "192.168.1.0/24 или 1.2.3.4",
+    "Select application": "Выбрать приложение",
+    "Executables (*.exe);;All files (*)": "Исполняемые файлы (*.exe);;Все файлы (*)",
+    "Split tunneling works in TUN mode only. "
+    "Changes take effect after reconnecting the VPN.":
+        "Раздельное туннелирование работает только в режиме TUN. "
+        "Изменения применяются после переподключения VPN.",
 }
 
 _CATALOGUES = {EN: {}, RU: _RU}

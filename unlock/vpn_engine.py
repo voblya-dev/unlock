@@ -16,6 +16,10 @@ import json
 import subprocess
 import threading
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .split_tunnel import SplitTunnelingManager
 
 from .constants import (
     SINGBOX_SEARCH_DIRS,
@@ -164,7 +168,11 @@ def build_wireproxy_config(profile: Profile) -> str:
     return "\n".join(lines)
 
 
-def build_tun_config(profile: Profile) -> dict:
+def build_tun_config(
+    profile: Profile,
+    *,
+    split: "SplitTunnelingManager | None" = None,
+) -> dict:
     """sing-box config for the TUN adapter that fronts the local proxy.
 
     ``auto_route`` installs the default route, so every app follows the tunnel
@@ -238,9 +246,11 @@ def build_tun_config(profile: Profile) -> dict:
                 # fall back to TCP immediately instead of waiting out a
                 # timeout on every QUIC attempt.
                 *([{"network": "udp", "action": "reject"}] if udp_blocked else []),
+                # Per-app / per-domain / per-IP split tunnel rules, if any.
+                *(split.singbox_route_rules() if split else []),
             ],
             "auto_detect_interface": True,
-            "final": "proxy",
+            "final": (split.whitelist_final_outbound() or "proxy") if split else "proxy",
         },
     }
 
@@ -306,7 +316,8 @@ class VpnEngine:
         )
         return [str(exe), "run", "-c", str(VPN_CONFIG_PATH)]
 
-    def start(self, profile: Profile, *, tun: bool = False) -> None:
+    def start(self, profile: Profile, *, tun: bool = False,
+              split: "SplitTunnelingManager | None" = None) -> None:
         """Bring the tunnel up, optionally behind a TUN adapter.
 
         ``tun`` adds a second sing-box process that owns a virtual adapter and
@@ -341,7 +352,7 @@ class VpnEngine:
 
             if tun:
                 try:
-                    self._start_tun(profile)
+                    self._start_tun(profile, split=split)
                 except VpnEngineError:
                     self._stop_locked()
                     raise
@@ -366,7 +377,8 @@ class VpnEngine:
         ).start()
         return proc
 
-    def _start_tun(self, profile: Profile) -> None:
+    def _start_tun(self, profile: Profile,
+                   *, split: "SplitTunnelingManager | None" = None) -> None:
         exe = singbox_path()
         if exe is None:
             raise VpnEngineError(
@@ -374,7 +386,7 @@ class VpnEngine:
                 "it is what creates the TUN adapter."
             )
         VPN_TUN_CONFIG_PATH.write_text(
-            json.dumps(build_tun_config(profile), indent=2), encoding="utf-8"
+            json.dumps(build_tun_config(profile, split=split), indent=2), encoding="utf-8"
         )
         log.info("Starting the TUN adapter")
         self._tun_proc = self._spawn(

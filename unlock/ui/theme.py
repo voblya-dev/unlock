@@ -380,7 +380,10 @@ QPushButton {{
 }}
 QPushButton:hover {{
     background: {g['HOVER']};
-    border-color: {g['ACCENT_DIM']};
+}}
+QPushButton:focus {{
+    outline: none;
+    border-color: {g['CARD_BORDER']};
 }}
 QPushButton:pressed {{
     background: {g['PRESSED']};
