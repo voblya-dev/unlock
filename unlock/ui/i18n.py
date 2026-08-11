@@ -317,6 +317,7 @@ _RU: dict[str, str] = {
     # --- split tunneling tab
     "Split Tunneling": "Раздельное туннелирование",
     "Enable": "Включить",
+    "Disable": "Выключить",
     "Control which apps, websites, or IPs go through the VPN. "
     "Blacklist: everything tunnelled except chosen. "
     "Whitelist: only chosen goes through the VPN.":

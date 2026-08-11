@@ -154,6 +154,10 @@ class Switch(QCheckBox):
         off = theme.qcolor(theme.SWITCH_OFF)
         on = theme.qcolor(theme.ACCENT)
         fill = anim.blend(off, on, self._pos)
+        # The track should read as translucent when off and solid when on,
+        # so the accent side of the blend stays opaque and the off side fades.
+        if self._pos < 1.0:
+            fill.setAlphaF(fill.alphaF() * (0.35 + 0.65 * self._pos))
         if not enabled:
             fill.setAlphaF(fill.alphaF() * 0.45)
 

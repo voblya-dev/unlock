@@ -18,6 +18,7 @@ from ..benchmark import BenchmarkReport
 from ..controller import BenchmarkWorker, Controller
 from . import anim, theme
 from .i18n import tr
+from .seascape import paint_seascape
 
 
 def _fmt_ping(ms: float, lo: int = 110, hi: int = 150) -> str:
@@ -38,6 +39,7 @@ class BenchmarkDialog(QDialog):
         self.report: BenchmarkReport | None = None
 
         self.setWindowTitle(tr("Finding the best configuration"))
+        self.setObjectName("root")
         self.setModal(False)  # "Hide" leaves the main window usable while testing runs
         self.setFixedSize(520, 380)
         self.setStyleSheet(theme.STYLESHEET)
@@ -45,6 +47,14 @@ class BenchmarkDialog(QDialog):
 
         self._build(first_run)
         self._start()
+
+    def paintEvent(self, event) -> None:
+        # The same sea the pages lie on, frozen: the dialog is a transient
+        # piece of chrome and a live wave behind a progress log is a gimmick.
+        # Dialogs are opaque windows, so the CSS gradient cannot be used; this
+        # has to be paint.
+        paint_seascape(self, phase=0.0)
+        super().paintEvent(event)
 
     # ------------------------------------------------------------- layout
 

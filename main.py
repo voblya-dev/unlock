@@ -46,7 +46,7 @@ def _relaunch_elevated() -> bool:
 
 
 def _claim_single_instance(app: QApplication) -> QLocalServer | None:
-    """Returns the listening server, or None if another instance answered."""
+    """Return our server, or None only when a live instance acknowledges us."""
     probe = QLocalSocket()
     probe.connectToServer(_IPC_KEY)
     if probe.waitForConnected(300):
@@ -56,15 +56,81 @@ def _claim_single_instance(app: QApplication) -> QLocalServer | None:
         probe.disconnectFromServer()
         return None
 
+    # A crashed process can leave the named endpoint behind. Remove it only
+    # after the connection probe failed, then require listen() to succeed.
+    QLocalServer.removeServer(_IPC_KEY)
     server = QLocalServer(app)
-    QLocalServer.removeServer(_IPC_KEY)  # clean up after a previous crash
-    server.listen(_IPC_KEY)
-    return server
+    if server.listen(_IPC_KEY):
+        return server
+
+    # Close a race where another process claimed the endpoint between cleanup
+    # and listen. Treat it as live only if it actually accepts a connection.
+    probe.connectToServer(_IPC_KEY)
+    if probe.waitForConnected(300):
+        probe.write(b"show")
+        probe.flush()
+        probe.waitForBytesWritten(300)
+        probe.disconnectFromServer()
+        return None
+
+    raise RuntimeError(
+        f"Cannot claim single-instance server {_IPC_KEY!r}: {server.errorString()}"
+    )
 
 
 def main() -> int:
+    # Frozen builds are console-less: a native crash (fail-fast in Qt6Core,
+    # e.g. 0xc0000409) never hits an excepthook, so dump fault stacks to the
+    # log file to make them diagnosable.
+    import faulthandler
+    from unlock.constants import LOG_PATH as _LOG_PATH
+    try:
+        # buffering=1: line-buffered, otherwise a fail-fast in native code
+        # would take the buffered fault stack down with the process.
+        _fault_file = open(_LOG_PATH, "a", encoding="utf-8", buffering=1)
+        faulthandler.enable(file=_fault_file)
+    except OSError:
+        faulthandler.enable()
+
     logger.setup_logging(logging.INFO)
     log = logger.get_logger("main")
+
+    # Qt fatal messages (qFatal / qCritical) never reach stdout in frozen GUI
+    # builds; route them into the log so a crash is diagnosable.
+    from PyQt6.QtCore import qInstallMessageHandler
+
+    import faulthandler as _fh
+
+    _orig_excepthook = sys.excepthook
+
+    def _excepthook(exc_type, exc, tb):
+        # Slots throwing inside a queued signal used to surface only as Qt's
+        # "Unhandled Python exception" with the exception text lost, followed
+        # by a native abort. Log the real traceback first, with faulthandler
+        # disabled so the inevitable abort() can't truncate the dump.
+        try:
+            _fh.disable()
+            log.critical(
+                "Unhandled exception", exc_info=(exc_type, exc, tb)
+            )
+        except Exception:
+            pass
+        _orig_excepthook(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+
+    def _qt_message_handler(mode, ctx, msg):
+        try:
+            import traceback
+            stack = "".join(traceback.format_stack(limit=12))
+        except Exception:
+            stack = ""
+        try:
+            log.error("Qt: %s\n%s", msg, stack)
+        except Exception:
+            pass
+
+    qInstallMessageHandler(_qt_message_handler)
     log.info("=== %s starting ===", APP_NAME)
 
     minimized = "--minimized" in sys.argv
@@ -102,6 +168,7 @@ def main() -> int:
         remove_legacy_exclusion()
 
     controller = Controller()
+    app.aboutToQuit.connect(controller.shutdown)
     window = MainWindow(controller)
 
     # Focus request from a second launch attempt.

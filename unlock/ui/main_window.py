@@ -37,20 +37,21 @@ from . import anim, i18n, icons, theme
 from .benchmark_dialog import BenchmarkDialog
 from .evolution_dialog import EvolutionDialog
 from .i18n import tr
-from .power_button import PowerButton
+from .lighthouse_scene import LighthouseScene
+from .seascape import SeascapePage
 from .split_tunnel_tab import SplitTunnelTab
 from .vpn_tab import VpnTab
 from .widgets import ColorSwatchPicker, GamepadGlyph, NavButton, NoScrollComboBox, Switch
 
 log = logger.get_logger("ui")
 
-_WINDOW_SIZE = (700, 780)
-_MIN_SIZE = (480, 480)
+_WINDOW_SIZE = (960, 540)
+_MIN_SIZE = (700, 400)
 _HEADER_H = 46
-_SIDEBAR_W = 200
+_SIDEBAR_W = 168
 _RESIZE_MARGIN = 10
 _CORNER_GRIP = 20
-_CORNER_RADIUS = 14
+_CORNER_RADIUS = 18
 
 # Plain bit flags rather than Qt.Edge: PyQt6 wraps that enum in a type that
 # refuses int(), which makes an "no edges" value awkward to express.
@@ -117,6 +118,18 @@ def _card() -> QFrame:
     frame = QFrame()
     frame.setObjectName("card")
     return frame
+
+
+def _open_softly(dialog, *, duration: int = 300) -> None:
+    """Show a dialog with a short fade instead of a hard pop."""
+    dialog.setWindowOpacity(0.0)
+    dialog.show()
+    fade = QPropertyAnimation(dialog, b"windowOpacity", dialog)
+    fade.setDuration(duration)
+    fade.setStartValue(0.0)
+    fade.setEndValue(1.0)
+    fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+    fade.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
 class MainWindow(QWidget):
@@ -418,44 +431,39 @@ class MainWindow(QWidget):
 
     def _build_home_tab(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("lighthouseHome")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        layout.addStretch(1)
-
-        self._power = PowerButton(size=250)
+        self._power = LighthouseScene()
         self._power.clicked.connect(self._on_power_clicked)
-        holder = QHBoxLayout()
-        holder.addStretch(1)
-        holder.addWidget(self._power)
-        holder.addStretch(1)
-        layout.addLayout(holder)
+        layout.addWidget(self._power, 1)
 
+        # Kept alive for controller/settings compatibility, but deliberately
+        # removed from the reference-driven Home composition.
         self._headline = QLabel()
-        self._headline.setObjectName("statusHeadline")
-        self._headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._headline)
-
         self._detail = QLabel()
-        self._detail.setObjectName("statusDetail")
-        self._detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._detail.setWordWrap(True)
-        # Two lines are reserved up front. Otherwise a status that wraps takes an
-        # extra line, the stretch above redistributes, and the button jumps up
-        # the moment the text changes.
-        self._detail.setMinimumHeight(
-            self._detail.fontMetrics().lineSpacing() * 2
-        )
-        layout.addWidget(self._detail)
-
-        layout.addStretch(1)
-        layout.addWidget(self._build_metrics_card())
-        layout.addWidget(self._build_game_card())
-
         self._retest = QPushButton(tr("Re-test / Benchmark"))
         self._retest.clicked.connect(lambda: self.run_benchmark(first_run=False))
-        layout.addWidget(self._retest)
+        self._cb_game = Switch()
+        self._cb_game.toggled.connect(self._on_game_filter_toggled)
+        self._game_glyph = GamepadGlyph()
+        self._game_hint = QLabel()
+        self._strategy_value = QLabel("—")
+        self._ping_value = QLabel("—")
+        self._telegram_value = QLabel("—")
+        # The latency metric no longer has a visible Home card; it surfaces as
+        # a small pill overlay on the scene instead. The tween still eases the
+        # number so updates do not flicker between readings.
+        self._latency_value = QLabel("—")
+        self._latency_tween = anim.ValueTween(
+            self._latency_value, self._paint_latency
+        )
+        for widget in (self._headline, self._detail, self._retest,
+                       self._cb_game, self._game_glyph, self._game_hint,
+                       self._strategy_value, self._ping_value, self._telegram_value):
+            widget.hide()
 
         return page
 
@@ -574,7 +582,10 @@ class MainWindow(QWidget):
         return card
 
     def _build_settings_tab(self) -> QWidget:
-        page = QWidget()
+        # The sea background scrolls with the cards: a fixed backdrop behind the
+        # scroll area would sit still while the cards slide over it, which reads
+        # as a reflection rather than water.
+        page = SeascapePage()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(14)
@@ -825,7 +836,7 @@ class MainWindow(QWidget):
         return card
 
     def _build_logs_tab(self) -> QWidget:
-        page = QWidget()
+        page = SeascapePage()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(10)
@@ -976,9 +987,13 @@ class MainWindow(QWidget):
         dialog = self._benchmark_dialog
         if dialog is None:
             return
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        if dialog.isVisible():
+            dialog.raise_()
+            dialog.activateWindow()
+        else:
+            _open_softly(dialog)
+            dialog.raise_()
+            dialog.activateWindow()
 
     @pyqtSlot(int)
     def _on_benchmark_dialog_closed(self, _result: int) -> None:
@@ -1006,9 +1021,13 @@ class MainWindow(QWidget):
         dialog = self._evolution_dialog
         if dialog is None:
             return
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        if dialog.isVisible():
+            dialog.raise_()
+            dialog.activateWindow()
+        else:
+            _open_softly(dialog)
+            dialog.raise_()
+            dialog.activateWindow()
 
     @pyqtSlot(int)
     def _on_evolution_dialog_closed(self, _result: int) -> None:
@@ -1162,17 +1181,14 @@ class MainWindow(QWidget):
         if ms < 0:
             self._latency_tween.jump(0.0)
             self._latency_value.setText("—")
-            self._latency_value.setStyleSheet(
-                f"font-size: 20px; font-weight: 600; color: {theme.TEXT_FAINT};"
-            )
+            self._paint_latency(0.0)
             return
         self._latency_tween.to(ms)
 
     def _paint_latency(self, ms: float) -> None:
-        self._latency_value.setText(f"{ms:.0f} ms")
-        self._latency_value.setStyleSheet(
-            f"font-size: 20px; font-weight: 600; color: {theme.SUCCESS};"
-        )
+        text = f"{ms:.0f} ms" if ms > 0 else None
+        self._latency_value.setText(text or "—")
+        self._power.set_badge(text)
 
     @pyqtSlot(str)
     def _on_error(self, message: str) -> None:
@@ -1255,10 +1271,13 @@ class MainWindow(QWidget):
             self._restore_window()
 
     def _restore_window(self) -> None:
+        # Restore has to be instant — a fade here can restart from opacity 0 if
+        # a previous animation was interrupted, leaving the window invisible
+        # while the app keeps running (looks exactly like a crash).
+        self.setWindowOpacity(1.0)
         self.showNormal()
         self.raise_()
         self.activateWindow()
-        self._fade_window_in(duration=anim.NORMAL)
 
     def _minimise(self) -> None:
         """Fade out, then minimise to the taskbar.

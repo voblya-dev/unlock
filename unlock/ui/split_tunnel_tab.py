@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 from ..split_tunnel import RuleMode, RuleType, SplitTunnelRule
 from . import anim, theme
 from .i18n import tr
+from .seascape import SeascapePage
 from .widgets import Switch
 
 if TYPE_CHECKING:
@@ -540,7 +541,7 @@ class _RuleListPanel(QWidget):
 
 # ── main tab ─────────────────────────────────────────────────────────────────
 
-class SplitTunnelTab(QWidget):
+class SplitTunnelTab(SeascapePage):
     """Full split-tunneling page: header, mode toggle, sub-tabs, rule lists."""
 
     def __init__(
@@ -574,6 +575,7 @@ class SplitTunnelTab(QWidget):
 
         self._enabled_sw = Switch(tr("Enable"))
         self._enabled_sw.toggled.connect(self._on_enabled_toggled)
+        self._refresh_enabled_text()
         title_row.addWidget(self._enabled_sw)
         hlay.addLayout(title_row)
 
@@ -620,13 +622,16 @@ class SplitTunnelTab(QWidget):
         self._current_panel = 0
         outer.addWidget(self._stack, 1)
 
-        anim.stagger_in([header], step=0)
+        # Content fades in once, after every initial widget exists — the sea
+        # keeps drifting behind the cards with the timer started by SeascapePage.
+        anim.stagger_in([header, self._sub_tabs], step=70)
 
     def _load(self) -> None:
         mgr = self._manager
         self._enabled_sw.blockSignals(True)
         self._enabled_sw.setChecked(mgr.enabled)
         self._enabled_sw.blockSignals(False)
+        self._refresh_enabled_text()
         self._mode_toggle.set_mode(mgr.mode)
         self._update_controls_state()
 
@@ -634,7 +639,13 @@ class SplitTunnelTab(QWidget):
 
     def _on_enabled_toggled(self, value: bool) -> None:
         self._manager.enabled = value
+        self._refresh_enabled_text()
         self._update_controls_state()
+
+    def _refresh_enabled_text(self) -> None:
+        self._enabled_sw.setText(
+            tr("Disable") if self._enabled_sw.isChecked() else tr("Enable")
+        )
 
     def _on_mode_changed(self, mode: RuleMode) -> None:
         self._manager.mode = mode
@@ -650,6 +661,9 @@ class SplitTunnelTab(QWidget):
             p.setEnabled(on)
 
     def restyle(self) -> None:
+        # Paint timing is palette-driven from the paint methods themselves, so a
+        # hot-restyle only needs a repaint after the CSS swap.
+        super().restyle()
         self._mode_toggle.restyle()
         for p in self._panels:
             p.refresh()

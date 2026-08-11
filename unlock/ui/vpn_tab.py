@@ -32,6 +32,7 @@ from ..vpn_links import Profile, VpnLinkError
 from . import anim, theme
 from .i18n import tr
 from .power_button import PowerButton
+from .seascape import SeascapePage
 from .stats_panel import StatsPanel
 from .vpn_add_dialog import AddServersDialog, DropZone
 
@@ -151,7 +152,7 @@ class ProfileCard(QFrame):
         anim.collapse(self, duration=anim.NORMAL, on_finished=on_finished)
 
 
-class VpnTab(QWidget):
+class VpnTab(SeascapePage):
     """The VPN switch, the Add button, and the list of saved servers."""
 
     changed = pyqtSignal()
@@ -184,7 +185,8 @@ class VpnTab(QWidget):
         root.setContentsMargins(24, 16, 24, 16)
         root.setSpacing(12)
 
-        root.addWidget(self._build_power_card())
+        self._power_card = self._build_power_card()
+        root.addWidget(self._power_card)
         # Only meaningful while a tunnel is up, and it takes real vertical space,
         # so it is hidden rather than shown empty.
         self._stats = StatsPanel()
@@ -194,7 +196,8 @@ class VpnTab(QWidget):
         self._stats.setVisible(False)
         root.addWidget(self._stats)
 
-        root.addWidget(self._build_list_card(), 1)
+        self._list_card = self._build_list_card()
+        root.addWidget(self._list_card, 1)
 
         self._status = QLabel("")
         self._status.setObjectName("hint")
@@ -208,6 +211,7 @@ class VpnTab(QWidget):
         controller.vpn_loss_changed.connect(self._stats.set_loss)
         self.reload()
         self._apply_vpn_state(controller.vpn_state)
+        anim.stagger_in([self._power_card, self._list_card])
 
     # ------------------------------------------------------------- layout
 
@@ -354,6 +358,7 @@ class VpnTab(QWidget):
             anim.collapse(self._stats, on_finished=self._stats.clear)
 
     def restyle(self) -> None:
+        super().restyle()
         self._stats.restyle()
         self._power.restyle()
 

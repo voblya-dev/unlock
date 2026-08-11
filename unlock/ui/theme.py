@@ -22,15 +22,15 @@ FONT = "Segoe UI"
 # Each palette is a plain dict so apply() can drop it straight into globals().
 _PALETTES = {
     DARK: {
-        "BG": "#18181a",
-        "BG_ELEVATED": "#1e1e20",
-        # Active sidebar nav item highlight
-        "SIDEBAR_ACTIVE": "#2c2c2e",
-        "CARD": "rgba(255, 255, 255, 0.05)",
-        "CARD_BORDER": "rgba(255, 255, 255, 0.07)",
-        "HOVER": "rgba(255, 255, 255, 0.07)",
-        "PRESSED": "rgba(255, 255, 255, 0.11)",
-        "TRACK": "rgba(255, 255, 255, 0.06)",
+        "BG": "#071522",
+        "BG_ELEVATED": "#0b2030",
+        # Deep-ocean glass surfaces shared by every page and dialog.
+        "SIDEBAR_ACTIVE": "#173b4d",
+        "CARD": "rgba(18, 55, 72, 0.72)",
+        "CARD_BORDER": "rgba(126, 190, 205, 0.20)",
+        "HOVER": "rgba(72, 139, 158, 0.22)",
+        "PRESSED": "rgba(92, 166, 181, 0.30)",
+        "TRACK": "rgba(126, 190, 205, 0.12)",
         # Switches use a bright, solid off-state so the monochrome accent does
         # not turn the whole control into one indistinguishable white blob.
         "SWITCH_OFF": "#f2f2f7",
@@ -207,15 +207,15 @@ QWidget {{
 #root {{
     background: {g['BG']};
     border: 1px solid {g['CARD_BORDER']};
-    border-radius: 14px;
+    border-radius: 18px;
 }}
 
 /* ── Sidebar ─────────────────────────────────────────── */
 #sidebar {{
     background: {g['BG_ELEVATED']};
     border-right: 1px solid {g['CARD_BORDER']};
-    border-top-left-radius: 13px;
-    border-bottom-left-radius: 13px;
+    border-top-left-radius: 17px;
+    border-bottom-left-radius: 17px;
 }}
 
 #sidebarHeader {{
@@ -308,8 +308,8 @@ QWidget {{
 /* ── Content area ────────────────────────────────────── */
 #contentArea {{
     background: {g['BG']};
-    border-top-right-radius: 13px;
-    border-bottom-right-radius: 13px;
+    border-top-right-radius: 17px;
+    border-bottom-right-radius: 17px;
 }}
 
 /* ── Cards ───────────────────────────────────────────── */

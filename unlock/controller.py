@@ -776,21 +776,35 @@ class Controller(QObject):
         self.error.emit(f"Strategy search failed: {message}")
 
     def shutdown(self) -> None:
-        if self._shut_down:  # closeEvent and main() both call this
+        if self._shut_down:
             return
         self._shut_down = True
-        self._stop_latency_monitor()
-        self._stop_vpn_ping_monitor()
         self._stats_timer.stop()
+        known = [self._latency_worker, self._vpn_ping_worker, self._tg_watcher, self._benchmark_worker, self._aborted_benchmark, self._evolution_worker, *self._workers]
+        workers = []
+        seen = set()
+        for worker in known:
+            if worker is None or id(worker) in seen:
+                continue
+            seen.add(id(worker))
+            workers.append(worker)
+            for method_name in ("cancel", "stop"):
+                method = getattr(worker, method_name, None)
+                if callable(method):
+                    try:
+                        method()
+                    except Exception:
+                        log.exception("Could not stop worker during shutdown")
+            worker.requestInterruption()
+        self._latency_worker = self._vpn_ping_worker = self._tg_watcher = None
+        self._benchmark_worker = self._aborted_benchmark = self._evolution_worker = None
         self._stop_vpn()
         self._stop_engines()
-        for worker in self._workers:
-            if worker.isRunning():
-                # Short wait only: every worker is a daemon-style QThread whose
-                # side effects are already undone by the two stops above, and the
-                # user asked to quit — blocking on a mid-flight probe is worse
-                # than letting the process tear the thread down.
-                worker.wait(300)
+        for worker in workers:
+            if worker.isRunning() and not worker.wait(5000):
+                log.warning("Worker did not stop within 5 seconds; waiting safely")
+                worker.wait()
+        self._workers.clear()
 
     # ------------------------------------------------------------- engine glue
 
@@ -976,13 +990,15 @@ class Controller(QObject):
 
     def _stop_latency_monitor(self) -> None:
         if self._latency_worker is not None:
-            self._latency_worker.stop()
-            # Not waited on. The thread checks its stop flag every 50 ms and
-            # touches nothing that outlives it, while wait() here runs on the UI
-            # thread — a probe caught mid-connect froze the button animation for
-            # the whole timeout. _track keeps a reference so it is not collected
-            # while still running.
-            self._track(self._latency_worker)
+            worker = self._latency_worker
+            worker.stop()
+            # Wait long enough for one 50 ms sleep slice. Left unjoined, the
+            # thread could still emit measured/loss_measured from the pending
+            # sleep's tail into crossfade_text/paint code while _set_state(IDLE)
+            # was already redrawing the button, which is exactly the cross-thread
+            # race that terminated Qt with qFatal (0xc0000409).
+            worker.wait(150)
+            self._track(worker)
             self._latency_worker = None
         self.latency_changed.emit(-1.0)
 
@@ -998,8 +1014,13 @@ class Controller(QObject):
 
     def _stop_vpn_ping_monitor(self) -> None:
         if self._vpn_ping_worker is not None:
-            self._vpn_ping_worker.stop()
-            self._track(self._vpn_ping_worker)
+            worker = self._vpn_ping_worker
+            worker.stop()
+            # The worker sleeps in 50 ms slices like the latency one; let it
+            # leave the loop before this thread races ahead into a state change.
+            worker.wait(150)
+            if worker.isRunning():
+                self._track(worker)
             self._vpn_ping_worker = None
         self.vpn_latency_changed.emit(-1.0)
 

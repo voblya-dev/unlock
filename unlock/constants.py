@@ -211,4 +211,8 @@ DEFAULT_CONFIG: dict = {
     "vpn_tun": True,             # route every app through a TUN adapter
     "enable_vpn": False,
     "vpn_system_proxy": True,    # point Windows at the local SOCKS/HTTP port
+    # --- split tunneling
+    "split_tunnel_enabled": False,
+    "split_tunnel_mode": "blacklist",  # blacklist | whitelist
+    "split_tunnel_rules": [],    # apps / domains / IPs picked by the user
 }

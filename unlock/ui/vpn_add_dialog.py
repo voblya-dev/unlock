@@ -27,6 +27,7 @@ from .. import vpn_import
 from ..vpn_links import Profile, VpnLinkError
 from . import theme
 from .i18n import tr
+from .seascape import paint_seascape
 
 _ACCEPTED = vpn_import.IMAGE_SUFFIXES + vpn_import.CONFIG_SUFFIXES
 
@@ -151,6 +152,12 @@ class AddServersDialog(QDialog):
         self.setAcceptDrops(True)
 
         self._build()
+
+    def paintEvent(self, event) -> None:
+        # Same sea paint as the pages; fixed phase, no per-frame drift for a
+        # dialog that lives for seconds.
+        paint_seascape(self, phase=0.0)
+        super().paintEvent(event)
 
     # ------------------------------------------------------------- layout
 

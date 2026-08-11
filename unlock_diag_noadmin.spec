@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for Unlock.
 
 Build:
@@ -9,7 +9,7 @@ Output: dist/Unlock/Unlock.exe (one folder, no console, requests elevation).
 
 Deliberately one-folder rather than one-file. A one-file build unpacks the whole
 payload into %TEMP% on every launch, and Windows Defender's ML heuristics score
-that — a self-extracting binary dropping network executables — as malware: it
+that â€” a self-extracting binary dropping network executables â€” as malware: it
 quarantined the bundled wireproxy.exe out of both the source tree and the temp
 dir. One-folder writes those files once, so a user who whitelists them keeps
 them whitelisted, and startup no longer pays for the extraction.
@@ -33,13 +33,13 @@ for path in bin_dir.rglob("*") if bin_dir.exists() else []:
 
 if not (bin_dir / "zapret" / "winws.exe").exists():
     raise SystemExit(
-        "bin/zapret/winws.exe is missing — the built exe would have no DPI engine.\n"
+        "bin/zapret/winws.exe is missing â€” the built exe would have no DPI engine.\n"
         "Run:  python tools/fetch_zapret.py"
     )
 
 if not list((bin_dir / "zapret" / "configs").glob("general*.bat")):
     raise SystemExit(
-        "bin/zapret/configs has no general*.bat — the built exe would have no strategies.\n"
+        "bin/zapret/configs has no general*.bat â€” the built exe would have no strategies.\n"
         "Run:  python tools/fetch_zapret.py"
     )
 
@@ -57,7 +57,7 @@ for engine, url in (
 ):
     if not (bin_dir / engine).exists():
         raise SystemExit(
-            f"bin/{engine} is missing — the built exe could not run a VPN.\n"
+            f"bin/{engine} is missing â€” the built exe could not run a VPN.\n"
             f"Download the windows-amd64 build from {url}"
         )
 
@@ -94,14 +94,14 @@ exe = EXE(
     pyz,
     a.scripts,
     exclude_binaries=True,      # one-folder: the payload rides in COLLECT below
-    name="Unlock",
+    name="UnlockDiag",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,                  # UPX-packed WinDivert trips AV heuristics
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
-    uac_admin=True,             # WinDivert driver load requires elevation
+    uac_admin=False,             # WinDivert driver load requires elevation
     icon="assets/unlock-white.ico" if (ROOT / "assets" / "unlock-white.ico").exists() else None,
 )
 
@@ -112,5 +112,6 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="Unlock",
+    name="UnlockDiag",
 )
+

@@ -19,6 +19,7 @@ from ..evolution import EvolutionReport
 from . import anim, theme
 from .benchmark_dialog import _fmt_ping
 from .i18n import tr
+from .seascape import paint_seascape
 
 
 class EvolutionDialog(QDialog):
@@ -29,6 +30,7 @@ class EvolutionDialog(QDialog):
         self.report: EvolutionReport | None = None
 
         self.setWindowTitle(tr("Evolving a strategy"))
+        self.setObjectName("root")
         self.setModal(False)  # "Hide" leaves the main window usable while it runs
         self.setFixedSize(560, 420)
         self.setStyleSheet(theme.STYLESHEET)
@@ -36,6 +38,11 @@ class EvolutionDialog(QDialog):
 
         self._build()
         self._start()
+
+    def paintEvent(self, event) -> None:
+        # Same fixed sea paint as BenchmarkDialog: chrome, not a living page.
+        paint_seascape(self, phase=0.0)
+        super().paintEvent(event)
 
     # ------------------------------------------------------------- layout
 
