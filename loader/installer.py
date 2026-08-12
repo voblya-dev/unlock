@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import threading
 import zipfile
+import ctypes
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable
@@ -336,6 +337,20 @@ def _remove_path(path: Path) -> None:
         pass
 
 
+def _launch_installed_exe(exe_path: Path) -> None:
+    shell32 = ctypes.windll.shell32
+    result = shell32.ShellExecuteW(
+        None,
+        "open",
+        str(exe_path),
+        None,
+        str(exe_path.parent),
+        1,
+    )
+    if result <= 32:
+        raise OSError(int(result), f"ShellExecuteW failed for {exe_path}")
+
+
 def _best_effort(log: LogCallback, label: str, action: Callable[[], None]) -> None:
     try:
         action()
@@ -504,7 +519,7 @@ def install_release(
         set_stage(3, "Finishing up", "Installation complete")
         progress(100, "Ready")
         if options.launch_after_install:
-            subprocess.Popen([str(installed_exe)], cwd=str(options.install_dir))
+            _launch_installed_exe(installed_exe)
             log(f"Launch: started {installed_exe}")
         return installed_exe
 
