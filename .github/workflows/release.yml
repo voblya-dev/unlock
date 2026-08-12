@@ -64,7 +64,7 @@ jobs:
 
       - name: Build Unlock
         shell: pwsh
-        run: pyinstaller unlock.spec --noconfirm
+        run: py -m PyInstaller unlock.spec --noconfirm
 
       - name: Package Unlock.zip
         shell: pwsh

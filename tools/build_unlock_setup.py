@@ -58,7 +58,7 @@ def main() -> int:
         args.min_loader_version,
     ]
     subprocess.run(manifest_cmd, cwd=root, check=True)
-    subprocess.run(["pyinstaller", "unlock_loader.spec", "--noconfirm"], cwd=root, check=True)
+    subprocess.run(["py", "-m", "PyInstaller", "unlock_loader.spec", "--noconfirm"], cwd=root, check=True)
     print(root / "dist" / "UnlockSetup.exe")
     return 0
 
