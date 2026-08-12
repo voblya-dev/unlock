@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to publish, for example v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    env:
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "RELEASE_TAG=${{ inputs.tag }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } else {
+            "RELEASE_TAG=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+
+      - name: Ensure target tag is present
+        shell: pwsh
+        run: |
+          git fetch --force --tags
+          git rev-parse "$env:RELEASE_TAG" | Out-Null
+
+      - name: Check out release tag
+        shell: pwsh
+        run: git checkout "$env:RELEASE_TAG"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          py -m pip install --upgrade pip
+          py -m pip install -r requirements.txt pyinstaller
+
+      - name: Validate version against tag
+        shell: pwsh
+        run: py -B tools/check_release_version.py --tag "$env:RELEASE_TAG"
+
+      - name: Build Unlock
+        shell: pwsh
+        run: pyinstaller unlock.spec --noconfirm
+
+      - name: Package Unlock.zip
+        shell: pwsh
+        run: py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
+
+      - name: Build bootstrap installer
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG.Substring(1)
+          $packageUrl = "https://github.com/${{ github.repository }}/releases/download/$env:RELEASE_TAG/Unlock.zip"
+          py -B tools/build_unlock_setup.py --zip dist/Unlock.zip --version $version --package-url $packageUrl
+
+      - name: Write checksums
+        shell: pwsh
+        run: |
+          $assets = @(
+            "dist\Unlock.zip",
+            "dist\loader_manifest.json",
+            "dist\UnlockSetup.exe"
+          )
+          $lines = foreach ($path in $assets) {
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $name = [IO.Path]::GetFileName($path)
+            "$hash  $name"
+          }
+          Set-Content -LiteralPath "dist\SHA256SUMS.txt" -Value $lines -Encoding ascii
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+            "dist\Unlock.zip",
+            "dist\loader_manifest.json",
+            "dist\UnlockSetup.exe",
+            "dist\SHA256SUMS.txt"
+          )
+          gh release view "$env:RELEASE_TAG" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "$env:RELEASE_TAG" @assets --clobber
+          } else {
+            gh release create "$env:RELEASE_TAG" @assets --title "$env:RELEASE_TAG" --verify-tag --generate-notes
+          }

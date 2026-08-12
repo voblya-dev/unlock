@@ -306,6 +306,52 @@ dist/Unlock/Unlock.exe
 
 Spec-файл проверяет наличие `winws.exe`, preset-конфигураций, sing-box, wireproxy, AmneziaWG и Wintun. Без этих файлов сборка останавливается, чтобы не получить неполный дистрибутив.
 
+## Публикация релиза
+
+Релизный установщик теперь собирается как один файл:
+
+```text
+dist/UnlockSetup.exe
+```
+
+Полный набор release-артефактов:
+
+```text
+dist/Unlock.zip
+dist/loader_manifest.json
+dist/UnlockSetup.exe
+dist/SHA256SUMS.txt
+```
+
+Локальная подготовка артефактов:
+
+```powershell
+py -B tools/check_release_version.py --tag v1.0.0
+pyinstaller unlock.spec --noconfirm
+py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
+py -B tools/build_unlock_setup.py `
+  --zip dist/Unlock.zip `
+  --version 1.0.0 `
+  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.0.0/Unlock.zip
+```
+
+Автопубликация в GitHub Releases идёт через workflow `.github/workflows/release.yml`.
+Триггеры:
+
+- `git push origin v1.0.0`
+- ручной `workflow_dispatch` с уже существующим тегом
+
+Workflow:
+
+- проверяет, что `unlock/constants.py`, `loader/config.py` и `loader/__init__.py` содержат ту же версию, что и тег;
+- собирает `dist/Unlock`;
+- упаковывает его в `Unlock.zip`;
+- генерирует `loader_manifest.json` с URL на asset текущего release;
+- собирает одиночный `UnlockSetup.exe`;
+- публикует assets в GitHub Release.
+
+Пользователям нужно отдавать только `UnlockSetup.exe`. Остальные файлы загрузчик забирает сам из GitHub Release.
+
 ## Проверка проекта
 
 Smoke-тест интерфейса и переключателей:
