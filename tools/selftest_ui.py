@@ -22,6 +22,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
@@ -162,6 +163,7 @@ def main() -> int:
     config_module.CONFIG_PATH = tmp_dir / "config.json"
 
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     controller = Controller()
     window = MainWindow(controller)
     window.show()

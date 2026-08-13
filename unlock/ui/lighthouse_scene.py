@@ -1,309 +1,235 @@
-"""Asset-backed animated lighthouse scene for the Home page."""
+"""Obsidian Terminal connection visual used on Unlock's Home screen."""
+
 from __future__ import annotations
 
 import math
-import sys
-from pathlib import Path
 
 from PyQt6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, pyqtProperty, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
+from PyQt6.QtGui import QFont, QPainter, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from ..controller import State
-
-
-def _asset_path(name: str) -> Path:
-    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
-    return root / "assets" / name
+from . import theme
 
 
 class LighthouseScene(QWidget):
+    """A geometric route pulse; the legacy class name keeps imports stable."""
+
     clicked = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        # Arrow cursor over the sea — the scene is mostly window chrome now
-        # (drag zone), so the hand pointer only makes sense over the tower.
-        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setMinimumSize(520, 300)
-        self._off = QPixmap(str(_asset_path("lighthouse_off_cropped.png")))
-        self._on = QPixmap(str(_asset_path("lighthouse_on_cropped.png")))
-        if self._off.isNull() or self._on.isNull():
-            raise RuntimeError("Cropped lighthouse assets are missing or unreadable")
-        self._mix = 0.0
+        self.setMinimumSize(480, 330)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._state = State.IDLE
+        self._level = 0.0
+        self._visual_target = False
         self._phase = 0.0
         self._badge: str | None = None
-        self._state = State.IDLE
-        self._pressed = False
-        self._anim = QPropertyAnimation(self, b"mix", self)
-        self._anim.setDuration(900)
-        self._anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._hover = 0.0
+        self._press = 0.0
+        self._animation = QPropertyAnimation(self, b"level", self)
+        self._animation.setDuration(820)
+        self._animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self._timer = QTimer(self)
-        self._timer.setInterval(33)
-        self._timer.timeout.connect(self._tick)
-        self._timer.start()
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._advance_orbit)
+        self._hover_animation = QPropertyAnimation(self, b"hoverAmount", self)
+        self._hover_animation.setDuration(360)
+        self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._press_animation = QPropertyAnimation(self, b"pressAmount", self)
+        self._press_animation.setDuration(180)
+        self._press_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-    def _get_mix(self):
-        return self._mix
+    def _get_level(self) -> float:
+        return self._level
 
-    def _set_mix(self, value):
-        self._mix = max(0.0, min(1.0, float(value)))
+    def _set_level(self, value: float) -> None:
+        self._level = max(0.0, min(1.0, float(value)))
+        if self._level > .001 and not self._timer.isActive():
+            self._timer.start()
+        elif self._level <= .001:
+            self._timer.stop()
         self.update()
 
-    mix = pyqtProperty(float, fget=_get_mix, fset=_set_mix)
+    level = pyqtProperty(float, fget=_get_level, fset=_set_level)
+
+    def _get_hover(self) -> float:
+        return self._hover
+
+    def _set_hover(self, value: float) -> None:
+        self._hover = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    hoverAmount = pyqtProperty(float, fget=_get_hover, fset=_set_hover)
+
+    def _get_press(self) -> float:
+        return self._press
+
+    def _set_press(self, value: float) -> None:
+        self._press = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    pressAmount = pyqtProperty(float, fget=_get_press, fset=_set_press)
 
     def set_state(self, state: State) -> None:
         self._state = state
-        # Connecting lights up straight away — the lamp easing in is the
-        # "working" signal, so a click always gets immediate visual feedback.
-        target = 1.0 if state in (State.ACTIVE, State.DISCONNECTING, State.CONNECTING, State.BENCHMARKING) else 0.0
-        self._anim.stop()
-        self._anim.setStartValue(self._mix)
-        self._anim.setEndValue(target)
-        self._anim.start()
+        # Connecting/disconnecting are operational states. The visual transition
+        # was already launched by the click, so it is never restarted here.
+        if state in (State.CONNECTING, State.DISCONNECTING, State.BENCHMARKING, State.ERROR):
+            self.update()
+            return
+        target = 1.0 if state is State.ACTIVE else 0.0
+        self._visual_target = bool(target)
+        self._drive_level(target)
 
-    def _lamp_alpha(self) -> float:
-        """Effective brightness of the "on" layer for the current frame.
+    def play_toggle_transition(self, enabling: bool) -> None:
+        """Play the complete visual response at click time, independent of I/O."""
+        self._visual_target = enabling
+        self._state = State.CONNECTING if enabling else State.DISCONNECTING
+        self._drive_level(1.0 if enabling else 0.0)
 
-        The lamp eases in or out with _mix and holds a steady glow; no
-        strobing while connecting — the sweep of the beam already reads as
-        activity.
-        """
-        return self._mix
+    def _drive_level(self, target: float) -> None:
+        if abs(self._level - target) < .003:
+            return
+        self._animation.stop()
+        self._animation.setStartValue(self._level)
+        self._animation.setEndValue(target)
+        self._animation.start()
+
+    def set_badge(self, text: str | None) -> None:
+        self._badge = text
+        self.update()
 
     def restyle(self) -> None:
         self.update()
 
-    def _tick(self) -> None:
-        self._phase += 0.033
+    def _advance_orbit(self) -> None:
+        # Motion exists only while the connection visual is present.  Unlike
+        # the former particle system, this advances one inexpensive scalar and
+        # never competes with the VPN's startup work.
+        if self._level <= .001:
+            self._timer.stop()
+            return
+        self._phase = (self._phase + .009) % math.tau
         self.update()
-
-    def _target_rect(self) -> QRectF:
-        source = self._off.size()
-        scale = min(self.width() / source.width(), self.height() / source.height())
-        width, height = source.width() * scale, source.height() * scale
-        return QRectF((self.width() - width) / 2, (self.height() - height) / 2, width, height)
-
-    def _scene_clip(self) -> QPainterPath:
-        """Widget rect with only the right-hand corners rounded.
-
-        The scene fills the content area edge to edge; the left side butts
-        against the sidebar, so rounding every corner would shave pixels off
-        that seam. The window's own radius lives on the right.
-        """
-        w, h = self.width(), self.height()
-        r = 17.0
-        path = QPainterPath()
-        path.moveTo(0, 0)
-        path.lineTo(w - r, 0)
-        path.arcTo(w - 2 * r, 0, 2 * r, 2 * r, 90, -90)
-        path.lineTo(w, h - r)
-        path.arcTo(w - 2 * r, h - 2 * r, 2 * r, 2 * r, 0, -90)
-        path.lineTo(0, h)
-        path.closeSubpath()
-        return path
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        target = self._target_rect()
-        painter.setClipPath(self._scene_clip())
-        painter.fillRect(self.rect(), QColor(2, 8, 15))
-        # The lighthouse rides the swell: a slow rock about its waterline,
-        # so the tower pitches with the waves instead of sitting on rails.
-        # The pixmap is drawn into a slightly inflated rect so the rotation
-        # never exposes the rect's edges inside the clip.
-        margin = max(target.width(), target.height()) * 0.035
-        drawn = target.adjusted(-margin, -margin, margin, margin)
-        painter.save()
-        pivot = target.center()
-        painter.translate(pivot)
-        painter.rotate(1.1 * math.sin(self._phase * 0.55) + 0.5 * math.sin(self._phase * 0.9 + 1.4))
-        painter.translate(-pivot)
-        painter.setOpacity(1.0)
-        painter.drawPixmap(drawn, self._off, QRectF(self._off.rect()))
-        lamp = self._lamp_alpha()
-        if lamp > 0.001:
-            painter.setOpacity(lamp)
-            painter.drawPixmap(drawn, self._on, QRectF(self._on.rect()))
-        painter.setOpacity(1.0)
-        painter.restore()
-        painter.setOpacity(1.0)
-        self._paint_overlays(painter, target)
-        self._paint_badge(painter)
+        painter.fillRect(self.rect(), theme.qcolor(theme.BG))
+        self._draw_route(painter)
+        painter.end()
 
-    def _paint_overlays(self, painter: QPainter, r: QRectF) -> None:
-        painter.save()
-        painter.setClipRect(r)
-        pulse = 0.82 + 0.18 * math.sin(self._phase * 2.1)
-        lamp = QPointF(r.left() + r.width() * 0.505, r.top() + r.height() * 0.315)
-        light = self._lamp_alpha()
+    def _draw_grid(self, painter: QPainter) -> None:
+        line = theme.qcolor(theme.CARD_BORDER)
+        line.setAlpha(54 if theme.current_mode() == theme.DARK else 70)
+        painter.setPen(QPen(line, 1.0, Qt.PenStyle.DotLine))
+        for x in range(24, self.width(), 24):
+            painter.drawLine(x, 0, x, self.height())
+        for y in range(24, self.height(), 24):
+            painter.drawLine(0, y, self.width(), y)
 
-        if light > 0.01:
-            direction = math.sin(self._phase * 0.55)
-            end = QPointF(lamp.x() + r.width() * 0.52 * direction, lamp.y() + r.height() * 0.08)
-            beam = QPainterPath(lamp)
-            beam.lineTo(end.x(), end.y() - r.height() * 0.075)
-            beam.lineTo(end.x(), end.y() + r.height() * 0.075)
-            beam.closeSubpath()
-            gradient = QLinearGradient(lamp, end)
-            gradient.setColorAt(0, QColor(255, 239, 174, int(70 * light * pulse)))
-            gradient.setColorAt(1, QColor(255, 225, 140, 0))
-            painter.fillPath(beam, gradient)
-            glow = QRadialGradient(lamp, r.height() * 0.16)
-            glow.setColorAt(0, QColor(255, 242, 180, int(105 * light * pulse)))
-            glow.setColorAt(1, QColor(255, 225, 140, 0))
-            painter.fillRect(r, glow)
-        else:
-            # Off state: the lamp plays with cool light — a slow sweeping
-            # beam and a flickering glow whose position wanders a little.
-            sparkle = 0.55 + 0.30 * math.sin(self._phase * 1.6) + 0.15 * math.sin(self._phase * 2.7 + 1.3)
-            direction = math.sin(self._phase * 0.35)
-            end = QPointF(lamp.x() + r.width() * 0.34 * direction, lamp.y() + r.height() * 0.06)
-            beam = QPainterPath(lamp)
-            beam.lineTo(end.x(), end.y() - r.height() * 0.045)
-            beam.lineTo(end.x(), end.y() + r.height() * 0.045)
-            beam.closeSubpath()
-            gradient = QLinearGradient(lamp, end)
-            gradient.setColorAt(0, QColor(150, 205, 225, int(26 * sparkle)))
-            gradient.setColorAt(1, QColor(150, 205, 225, 0))
-            painter.fillPath(beam, gradient)
-            wander = QPointF(lamp.x() + r.width() * 0.012 * math.sin(self._phase * 0.9),
-                             lamp.y() + r.height() * 0.010 * math.cos(self._phase * 1.1))
-            glow = QRadialGradient(wander, r.height() * (0.11 + 0.03 * sparkle))
-            glow.setColorAt(0, QColor(150, 205, 225, int(40 + 42 * sparkle)))
-            glow.setColorAt(1, QColor(150, 205, 225, 0))
-            painter.fillRect(r, glow)
+    def _draw_route(self, painter: QPainter) -> None:
+        w, h = self.width(), self.height()
+        # The upper offset creates breathing room between the primary control
+        # and the telemetry cards below it.
+        center = QPointF(w * .50, h * .425 + self._press * 5)
+        # This is deliberately oversized: on the Home screen the planet is the
+        # primary affordance, not an illustration placed next to a button.
+        # Very small amplitude prevents the primary control from looking as if
+        # it is skipping position when the UI thread is busy starting engines.
+        radius = min(w, h) * (.355 + .014 * self._hover)
+        fg = theme.qcolor(theme.TEXT)
+        active = theme.qcolor(theme.ACCENT)
+        if self._state is State.ERROR:
+            active = theme.qcolor(theme.DANGER)
 
-        # Wide, rolling waves under the lighthouse: fat semi-transparent
-        # bodies of water with a bright crest line, each layer drifting at
-        # its own pace and depth so the sea reads as moving masses, not
-        # flat stripes.
-        for layer in range(3):
-            # Near layers (at the lighthouse foot) are taller, slower and
-            # heavier; far ones sit lower and slide a little quicker.
-            depth = 1.0 - layer * 0.28           # size/weight of the layer
-            drift = self._phase * (0.42 + layer * 0.18)
-            bob = self._phase * (0.9 + layer * 0.35)
-            base = r.top() + r.height() * (0.68 + layer * 0.055)
-            amp = r.height() * (0.034 + layer * 0.008) * depth
-            swell = r.height() * (0.016 + layer * 0.005)
-            path = QPainterPath()
-            step = max(4.0, r.width() / 220)
-            x = r.left()
-            path.moveTo(x, r.bottom())
-            path.lineTo(x, base)
-            crest = []
-            while x <= r.right() + step:
-                fx = (x - r.left()) / max(r.width(), 1.0)
-                # Two long travelling swells outrunning each other.
-                y = base + math.sin(fx * math.tau * (1.3 + layer * 0.35) + drift) * amp
-                y += math.sin(fx * math.tau * (2.1 + layer * 0.6) - drift * 1.6 + 1.7) * amp * 0.55
-                # Slow heavy heave of the whole layer.
-                y += math.sin(bob + fx * math.pi) * swell
-                path.lineTo(x, y)
-                crest.append(QPointF(x, y))
-                x += step
-            path.lineTo(r.right(), r.bottom())
-            path.closeSubpath()
-            # Water body: deeper and brighter toward the crest, fading down.
-            water = QLinearGradient(0, base - amp, 0, r.bottom())
-            water.setColorAt(0, QColor(70, 140, 160, 26 + layer * 12))
-            water.setColorAt(0.35, QColor(30, 80, 105, 20 + layer * 9))
-            water.setColorAt(1, QColor(10, 32, 48, 6))
-            painter.fillPath(path, water)
-            # Glowing foam line along the moving crest.
-            painter.setPen(QPen(QColor(170, 225, 235, 34 + layer * 14), max(1.4, r.height() * 0.0035)))
-            crest_path = QPainterPath()
-            crest_path.moveTo(crest[0])
-            for p in crest[1:]:
-                crest_path.lineTo(p)
-            painter.drawPath(crest_path)
+        # A double orbital cage gives the control depth before its active state
+        # appears; the inner machinery is deliberately more detailed than a
+        # generic power button.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        outer_box = QRectF(center.x() - radius - 10, center.y() - radius - 10,
+                           (radius + 10) * 2, (radius + 10) * 2)
+        subtle = theme.qcolor(theme.TEXT_FAINT)
+        subtle.setAlpha(58)
+        painter.setPen(QPen(subtle, .9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+        painter.drawEllipse(outer_box)
+        box = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
+        # The existing shell segments provide the only active feedback.  At
+        # rest they are quiet; when connected they brighten to white and orbit
+        # as one precise ring.  On disconnect their brightness eases away
+        # through the same finite transition, then the timer stops.
+        segment = theme.qcolor(theme.TEXT_FAINT)
+        segment.setAlpha(round(138 + 117 * self._level))
+        rotation = math.degrees(self._phase) * self._level
+        painter.setPen(QPen(segment, 2.0 + .35 * self._level,
+                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        for start in (14, 104, 194, 284):
+            painter.drawArc(box, int((start + rotation) * 16), 64 * 16)
 
-        painter.setPen(Qt.PenStyle.NoPen)
-        for i in range(5):
-            x = r.left() + r.width() * ((i * 0.23 + self._phase * (0.006 + i * 0.001)) % 1.15 - 0.08)
-            y = r.top() + r.height() * (0.58 + i * 0.055)
-            fog = QRadialGradient(QPointF(x, y), r.width() * 0.16)
-            fog.setColorAt(0, QColor(190, 220, 225, 12))
-            fog.setColorAt(1, QColor(190, 220, 225, 0))
-            painter.setBrush(fog)
-            painter.drawEllipse(QPointF(x, y), r.width() * 0.16, r.height() * 0.045)
-
-        if self._pressed:
-            wash = QRadialGradient(lamp, r.width() * 0.18)
-            wash.setColorAt(0, QColor(255, 245, 205, 12))
-            wash.setColorAt(1, QColor(255, 245, 205, 0))
-            painter.fillRect(r, wash)
-        painter.restore()
-
-    def set_badge(self, text: str | None) -> None:
-        """Paint a small status pill in the scene's bottom-right corner.
-
-        ``None`` hides it. The text is tiny and semi-transparent so it reads
-        as instrumentation layered over the picture, not as another card.
-        """
-        if self._badge != text:
-            self._badge = text
-            self.update()
-
-    def _paint_badge(self, painter: QPainter) -> None:
+        core = radius * .56
+        painter.setPen(QPen(fg, 1.25))
+        painter.drawEllipse(center, core, core)
+        # Globe core: equator, two latitude bands and two longitudes make it
+        # feel like an active protected network rather than a static circle.
+        painter.setPen(QPen(fg, 1.4))
+        r = core * .60
+        painter.drawEllipse(center, r, r)
+        painter.drawEllipse(QRectF(center.x() - r * .42, center.y() - r, r * .84, r * 2))
+        painter.drawEllipse(QRectF(center.x() - r * .72, center.y() - r, r * 1.44, r * 2))
+        painter.drawLine(QPointF(center.x() - r, center.y()), QPointF(center.x() + r, center.y()))
+        painter.drawArc(QRectF(center.x() - r, center.y() - r * .52, r * 2, r * 1.04), 0, 180 * 16)
+        painter.drawArc(QRectF(center.x() - r, center.y() - r * .52, r * 2, r * 1.04), 180 * 16, 180 * 16)
+    def _draw_badge(self, painter: QPainter) -> None:
         if not self._badge:
             return
-        painter.save()
-        painter.setClipPath(self._scene_clip())
         font = QFont(painter.font())
-        font.setPointSizeF(10.0)
+        font.setPointSizeF(9.0)
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
-        fm = painter.fontMetrics()
-        pad_x, pad_y = 12, 6
-        w = fm.horizontalAdvance(self._badge) + pad_x * 2
-        h = fm.height() + pad_y * 2
-        margin = 14
-        box = QRectF(self.width() - w - margin, self.height() - h - margin, w, h)
-        pill = QPainterPath()
-        pill.addRoundedRect(box, h / 2, h / 2)
-        painter.fillPath(pill, QColor(6, 18, 28, 165))
-        painter.setPen(QPen(QColor(170, 225, 235, 90), 1.0))
-        painter.drawPath(pill)
-        painter.setPen(QColor(190, 235, 240, 235))
+        box = QRectF(18, self.height() - 40, painter.fontMetrics().horizontalAdvance(self._badge) + 28, 24)
+        painter.setPen(QPen(theme.qcolor(theme.CARD_BORDER), 1.0))
+        painter.setBrush(theme.qcolor(theme.CARD))
+        painter.drawRect(box)
+        painter.setPen(theme.qcolor(theme.TEXT))
         painter.drawText(box, Qt.AlignmentFlag.AlignCenter, self._badge)
-        painter.restore()
 
-    def _lighthouse_hit(self, pos: QPointF) -> bool:
-        """True when the point lands on the lighthouse itself.
+    def _planet_rect(self) -> QRectF:
+        radius = min(self.width(), self.height()) * .39
+        center = QPointF(self.width() * .50, self.height() * .425)
+        return QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
 
-        Coordinates are fractions of the drawn target rect (same space the
-        overlays use). The tower is a slim vertical silhouette near the
-        horizontal center: a lamp head up top and a trunk down to the sea.
-        """
-        r = self._target_rect()
-        if not r.contains(pos):
-            return False
-        fx = (pos.x() - r.left()) / r.width()
-        fy = (pos.y() - r.top()) / r.height()
-        # Lantern room / dome at the top of the tower.
-        dx = (fx - 0.50) / 0.055
-        dy = (fy - 0.265) / 0.085
-        if dx * dx + dy * dy <= 1.0:
-            return True
-        # Tower trunk (slightly tapered, so a rectangle with a small margin).
-        return 0.45 <= fx <= 0.55 and 0.27 <= fy <= 0.50
+    def _animate(self, animation: QPropertyAnimation, current: float, target: float) -> None:
+        animation.stop()
+        animation.setStartValue(current)
+        animation.setEndValue(target)
+        animation.start()
+
+    def enterEvent(self, event) -> None:
+        self._animate(self._hover_animation, self._hover, 1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._animate(self._hover_animation, self._hover, 0.0)
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._lighthouse_hit(event.position()):
-            self._pressed = True
-        else:
-            # Ignoring lets the press climb to the main window, whose top strip
-            # is a drag-to-move zone — without this the scene eats every grab.
-            event.ignore()
-        self.update()
+        if event.button() == Qt.MouseButton.LeftButton and self._planet_rect().contains(event.position()):
+            self._animate(self._press_animation, self._press, 1.0)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor
+            if self._planet_rect().contains(event.position())
+            else Qt.CursorShape.ArrowCursor
+        )
 
     def mouseReleaseEvent(self, event) -> None:
-        if self._pressed and event.button() == Qt.MouseButton.LeftButton and self._lighthouse_hit(event.position()):
+        is_planet = self._planet_rect().contains(event.position())
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._animate(self._press_animation, self._press, 0.0)
+        if event.button() == Qt.MouseButton.LeftButton and is_planet:
             self.clicked.emit()
-        self._pressed = False
-        self.update()

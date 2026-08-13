@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-LOADER_VERSION = "1.0.0"
+LOADER_VERSION = "1.0.1"
 
 __all__ = ["LOADER_VERSION"]

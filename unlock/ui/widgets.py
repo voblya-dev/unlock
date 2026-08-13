@@ -11,16 +11,19 @@ from PyQt6.QtCore import (
     QRectF,
     QSize,
     Qt,
+    QTimer,
     pyqtProperty,
     pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QColor, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QWidget,
 )
 
@@ -30,6 +33,216 @@ _TRACK_W = 40
 _TRACK_H = 22
 _KNOB_R = 8.0
 _GAP = 12
+
+
+class ElidedLabel(QLabel):
+    """A one-line label which keeps long data inside its card.
+
+    Server names, endpoints and strategy titles are user supplied, so a fixed
+    layout cannot assume a sensible length.  The complete value remains in the
+    tooltip; the visible line is clipped with an ellipsis before it can overlap
+    a neighbouring control.
+    """
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        self._full_text = ""
+        super().__init__("", parent)
+        self.setWordWrap(False)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API name
+        self._full_text = str(text)
+        self.setToolTip(self._full_text)
+        self._sync_visible_text()
+
+    def text(self) -> str:  # noqa: N802 - Qt API name
+        return self._full_text
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_visible_text()
+
+    def _sync_visible_text(self) -> None:
+        width = max(0, self.contentsRect().width())
+        visible = self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, width
+        ) if width else self._full_text
+        if QLabel.text(self) != visible:
+            QLabel.setText(self, visible)
+
+
+class SignalGraph(QWidget):
+    """A decorative angular signal trace with an intentionally seamless loop."""
+
+    def __init__(self, samples: tuple[float, ...], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._samples = samples
+        self._phase = 0.0
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._advance)
+        self.setMinimumHeight(38)
+        self.setMaximumHeight(42)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def _advance(self) -> None:
+        self._phase = (self._phase + .003) % 1.0
+        if self.isVisible():
+            self.update()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Let the window settle before decorative movement starts. This keeps
+        # the first frame sharp on slower Windows GPUs.
+        if not self._timer.isActive():
+            QTimer.singleShot(240, self._start_if_visible)
+
+    def _start_if_visible(self) -> None:
+        if self.isVisible() and not self._timer.isActive():
+            self._timer.start()
+
+    def paintEvent(self, event) -> None:
+        if len(self._samples) < 2:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        bounds = self.rect().adjusted(1, 2, -1, -3)
+        faint = theme.qcolor(theme.TEXT_FAINT)
+        faint.setAlpha(36)
+        painter.setPen(QPen(faint, 1.0, Qt.PenStyle.DotLine))
+        for ratio in (.25, .75):
+            y = bounds.top() + bounds.height() * ratio
+            painter.drawLine(bounds.left(), int(y), bounds.right(), int(y))
+
+        # Interpolating a wrapped point list avoids the noticeable jump that a
+        # simple translated sequence makes when its first value reappears.
+        count = len(self._samples)
+        points = max(18, int(bounds.width() / 5.5))
+        path = QPainterPath()
+        for index in range(points + 1):
+            position = self._phase * count + index * count / points
+            base = int(position) % count
+            frac = position - int(position)
+            a = self._samples[base]
+            b = self._samples[(base + 1) % count]
+            sample = a + (b - a) * frac
+            x = bounds.left() + bounds.width() * index / points
+            y = bounds.bottom() - bounds.height() * sample
+            point = QPointF(x, y)
+            if index == 0:
+                path.moveTo(point)
+            else:
+                path.lineTo(point)
+        glow = theme.qcolor(theme.TEXT)
+        glow.setAlpha(42)
+        painter.setPen(QPen(glow, 4.0, Qt.PenStyle.SolidLine,
+                            Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawPath(path)
+        gradient = QLinearGradient(bounds.left(), bounds.top(), bounds.right(), bounds.bottom())
+        dim = theme.qcolor(theme.TEXT_FAINT)
+        dim.setAlpha(105)
+        gradient.setColorAt(0.0, dim)
+        gradient.setColorAt(.56, theme.qcolor(theme.TEXT))
+        gradient.setColorAt(1.0, dim)
+        painter.setPen(QPen(gradient, 1.65, Qt.PenStyle.SolidLine,
+                            Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+        # A bright tracking point gives the angular trace a sense of flow.
+        dot_position = self._phase * count + count * .72
+        dot_base = int(dot_position) % count
+        dot_frac = dot_position - int(dot_position)
+        dot_sample = self._samples[dot_base] + (
+            self._samples[(dot_base + 1) % count] - self._samples[dot_base]
+        ) * dot_frac
+        dot_x = bounds.left() + bounds.width() * .72
+        dot_y = bounds.bottom() - bounds.height() * dot_sample
+        painter.setBrush(theme.qcolor(theme.TEXT))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(QPointF(dot_x, dot_y), 2.9, 2.9)
+        painter.end()
+
+
+class MetricGlyph(QWidget):
+    """Three purpose-drawn dashboard glyphs, consistent at every DPI scale."""
+
+    def __init__(self, kind: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._kind = kind
+        self.setFixedSize(28, 28)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        center = QPointF(14, 14)
+        pen = QPen(theme.qcolor(theme.TEXT), 1.55, Qt.PenStyle.SolidLine,
+                   Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if self._kind == "bypass":
+            shield = QPainterPath()
+            shield.moveTo(14, 3.5)
+            shield.lineTo(21, 6.5)
+            shield.lineTo(20.2, 15.4)
+            shield.quadTo(19.1, 21.3, 14, 24.2)
+            shield.quadTo(8.9, 21.3, 7.8, 15.4)
+            shield.lineTo(7, 6.5)
+            shield.closeSubpath()
+            painter.drawPath(shield)
+            muted = theme.qcolor(theme.TEXT_FAINT)
+            painter.setPen(QPen(muted, 2.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawLine(QPointF(6.2, 21.3), QPointF(21.8, 6.7))
+            painter.setPen(pen)
+            painter.drawLine(QPointF(8.4, 21.3), QPointF(21.8, 8.6))
+        elif self._kind == "latency":
+            painter.drawArc(QRectF(4.5, 4.5, 19, 19), 30 * 16, 300 * 16)
+            painter.drawLine(center, QPointF(19.7, 9.2))
+            painter.setBrush(theme.qcolor(theme.TEXT))
+            painter.drawEllipse(center, 2.0, 2.0)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            faint = theme.qcolor(theme.TEXT_FAINT)
+            painter.setPen(QPen(faint, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            for x, y in ((6.7, 18.2), (10.0, 21.0), (18.0, 20.2)):
+                painter.drawPoint(QPointF(x, y))
+        else:  # Telegram tunnel: an original paper-aircraft / encrypted message glyph.
+            plane = QPainterPath()
+            plane.moveTo(3.8, 12.5)
+            plane.lineTo(24.2, 4.4)
+            plane.lineTo(17.2, 23.6)
+            plane.lineTo(12.5, 16.0)
+            plane.closeSubpath()
+            painter.drawPath(plane)
+            painter.drawLine(QPointF(12.5, 16.0), QPointF(24.2, 4.4))
+            painter.drawLine(QPointF(12.5, 16.0), QPointF(9.2, 20.0))
+        painter.end()
+
+
+class ClippedPanel(QWidget):
+    """Plain container — kept for API compat with main_window.
+
+    Rounding is handled purely by QSS ``border-radius`` on ``#contentArea``;
+    ``setMask`` in a frozen PyInstaller build broke paint of all children on
+    some Windows machines (content area rendered as a single flat fill).
+    """
+
+    def __init__(self, parent: QWidget | None = None, radius: float = 17.0,
+                 corners: int = 2 | 4) -> None:
+        super().__init__(parent)
+        # Kept for signature compat, unused.
+        self._radius = radius
+        self._corners = corners
+
+
+class ClippedStackedWidget(QStackedWidget):
+    """Plain QStackedWidget subclass preserved for API compat — no mask."""
+
+    def __init__(self, parent: QWidget | None = None, radius: float = 17.0,
+                 corners: int = 2 | 4) -> None:
+        super().__init__(parent)
+        self._radius = radius
+        self._corners = corners
 
 
 class NoScrollComboBox(QComboBox):
@@ -603,7 +816,6 @@ def _paint_nav_icon(
             )
 
     else:
-        # Fallback: a simple circle
         painter.drawEllipse(QRectF(cx - h * 0.60, cy - h * 0.60,
                                    h * 1.20, h * 1.20))
 
@@ -620,10 +832,13 @@ class NavButton(QPushButton):
         icon: str,
         label: str,
         parent: QWidget | None = None,
+        *,
+        compact: bool = False,
     ) -> None:
         super().__init__(label, parent)
         self._icon = icon
         self._active = False
+        self._compact = compact
         self.setObjectName("navItem")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -641,7 +856,7 @@ class NavButton(QPushButton):
         self.update()
 
     def sizeHint(self) -> QSize:
-        return QSize(180, 40)
+        return QSize(160 if self._compact else 180, 76 if self._compact else 40)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -658,12 +873,14 @@ class NavButton(QPushButton):
 
         sz = float(_NAV_ICON_SIZE)
         pad_left = 14.0
-        cx = pad_left + sz / 2
+        cx = self.width() / 2.0 if self._compact else pad_left + sz / 2
         cy = self.height() / 2.0
 
         _paint_nav_icon(painter, self._icon, icon_color, cx, cy, sz)
 
         # Label
+        if self._compact:
+            return
         text_x = pad_left + sz + 10.0
         text_color = theme.qcolor(theme.TEXT if self._active else theme.TEXT_MUTED)
         painter.setPen(text_color)

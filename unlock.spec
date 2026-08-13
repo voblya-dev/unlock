@@ -17,6 +17,8 @@ them whitelisted, and startup no longer pays for the extraction.
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 block_cipher = None
 # SPECPATH is injected by PyInstaller and points at this file's directory, so
 # the build works regardless of the shell's working directory.
@@ -70,7 +72,7 @@ binaries_and_data.append(
 # The window and taskbar icon is loaded from this file at runtime, not only
 # stamped into the exe header by the EXE(icon=...) argument below.
 for asset in ("unlock.png", "unlock.ico", "unlock-white.ico", "unlock-fill.png",
-              "lighthouse_off_cropped.png", "lighthouse_on_cropped.png"):
+              "unlock-mask.png", "unlock-mask.ico"):
     path = ROOT / "assets" / asset
     if path.exists():
         binaries_and_data.append((str(path), "assets"))
@@ -80,7 +82,13 @@ a = Analysis(
     pathex=[str(ROOT)],
     binaries=[],
     datas=binaries_and_data,
-    hiddenimports=["cryptography.hazmat.primitives.ciphers.algorithms"],
+    hiddenimports=(
+        ["cryptography.hazmat.primitives.ciphers.algorithms"]
+        # Plain `unlock` covers unlock.ui.* too; modulegraph silently skips
+        # any module it cannot compile, so without these the frozen exe would
+        # crash with ModuleNotFoundError the first time one is imported.
+        + collect_submodules("unlock")
+    ),
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "matplotlib", "numpy", "PyQt6.QtWebEngineCore"],
@@ -102,7 +110,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     uac_admin=True,             # WinDivert driver load requires elevation
-    icon="assets/unlock-white.ico" if (ROOT / "assets" / "unlock-white.ico").exists() else None,
+    icon="assets/unlock-mask.ico" if (ROOT / "assets" / "unlock-mask.ico").exists() else None,
 )
 
 coll = COLLECT(

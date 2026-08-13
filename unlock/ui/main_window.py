@@ -41,14 +41,14 @@ from .lighthouse_scene import LighthouseScene
 from .seascape import SeascapePage
 from .split_tunnel_tab import SplitTunnelTab
 from .vpn_tab import VpnTab
-from .widgets import ColorSwatchPicker, GamepadGlyph, NavButton, NoScrollComboBox, Switch
+from .widgets import ColorSwatchPicker, ClippedPanel, ClippedStackedWidget, ElidedLabel, GamepadGlyph, MetricGlyph, NavButton, NoScrollComboBox, SignalGraph, Switch
 
 log = logger.get_logger("ui")
 
 _WINDOW_SIZE = (960, 540)
 _MIN_SIZE = (700, 400)
 _HEADER_H = 46
-_SIDEBAR_W = 168
+_SIDEBAR_W = 160
 _RESIZE_MARGIN = 10
 _CORNER_GRIP = 20
 _CORNER_RADIUS = 18
@@ -192,8 +192,14 @@ class MainWindow(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        right = ClippedPanel(radius=17.0, corners=2 | 4)
+        right_lay = QVBoxLayout(right)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(0)
+        right_lay.addWidget(self._build_right_panel(), 1)
+
         root.addWidget(self._build_sidebar())
-        root.addWidget(self._build_right_panel(), 1)
+        root.addWidget(right, 1)
 
     # ── Sidebar ────────────────────────────────────────────────────────────
 
@@ -204,55 +210,37 @@ class MainWindow(QWidget):
         sidebar.setFixedWidth(_SIDEBAR_W)
 
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(10, 10, 10, 16)
+        layout.setContentsMargins(0, 16, 0, 16)
         layout.setSpacing(0)
 
         layout.addWidget(self._build_sidebar_header())
-        layout.addSpacing(8)
-        layout.addWidget(self._build_search_bar())
-        layout.addSpacing(12)
+        layout.addSpacing(28)
         layout.addWidget(self._build_nav_list())
         layout.addStretch(1)
 
         return sidebar
 
     def _build_sidebar_header(self) -> QWidget:
-        """App icon + name + window control buttons (− ✕)."""
+        """A compact identity lockup above the signed navigation rail."""
         header = QWidget()
         header.setObjectName("sidebarHeader")
         header.setFixedHeight(_HEADER_H)
 
         row = QHBoxLayout(header)
-        row.setContentsMargins(4, 0, 4, 0)
-        row.setSpacing(4)
+        row.setContentsMargins(18, 0, 14, 0)
+        row.setSpacing(9)
 
         # App icon (small pixmap from the tray icon factory)
         from . import icons as _icons
         icon_lbl = QLabel()
         icon_lbl.setPixmap(_icons.app_mark_pixmap("#ffffff", 32))
         icon_lbl.setFixedSize(32, 32)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row.addWidget(icon_lbl)
-
-        title = QLabel(APP_NAME)
-        title.setObjectName("appTitle")
-        title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        title.setMinimumWidth(0)
-        row.addWidget(title, 1)
-
-        minimize = QPushButton("−")
-        minimize.setObjectName("windowButton")
-        minimize.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        minimize.setFixedSize(24, 22)
-        minimize.setToolTip(tr("Minimise"))
-        minimize.clicked.connect(self._minimise)
-        row.addWidget(minimize)
-
-        close = QPushButton("✕")
-        close.setObjectName("closeButton")
-        close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        close.setFixedSize(24, 22)
-        close.clicked.connect(self.close)
-        row.addWidget(close)
+        wordmark = QLabel("UNLOCK")
+        wordmark.setObjectName("sidebarWordmark")
+        row.addWidget(wordmark)
+        row.addStretch(1)
 
         return header
 
@@ -353,18 +341,19 @@ class MainWindow(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
 
         nav_defs = [
-            ("home",   tr("Home")),
-            ("shield", tr("VPN")),
-            ("split",  tr("Tunneling")),
-            ("gear",   tr("Settings")),
-            ("list",   tr("Logs")),
+            ("home",   "ГЛАВНАЯ"),
+            ("shield", "VPN"),
+            ("split",  "МАРШРУТЫ"),
+            ("gear",   "НАСТРОЙКИ"),
+            ("list",   "ЖУРНАЛ"),
         ]
         self._nav_buttons: list[NavButton] = []
         for i, (icon, label) in enumerate(nav_defs):
             btn = NavButton(icon, label)
+            btn.setToolTip(label.title())
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.clicked.connect(lambda checked=False, idx=i: self._set_nav_page(idx))
             layout.addWidget(btn)
@@ -392,10 +381,34 @@ class MainWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._pages = QStackedWidget()
+        layout.addWidget(self._build_terminal_bar())
+        self._pages = ClippedStackedWidget()
         self._populate_pages()
         layout.addWidget(self._pages, 1)
         return panel
+
+    def _build_terminal_bar(self) -> QWidget:
+        bar = QFrame()
+        bar.setObjectName("terminalBar")
+        bar.setFixedHeight(62)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(28, 0, 18, 0)
+        row.setSpacing(18)
+        mark = QLabel("UNLOCK / УПРАВЛЕНИЕ СЕТЬЮ")
+        mark.setObjectName("terminalTitle")
+        row.addWidget(mark)
+        for _ in range(4):
+            dot = QLabel("●")
+            dot.setObjectName("terminalDot")
+            row.addWidget(dot)
+        row.addStretch(1)
+        for text, callback in (("−", self._minimise), ("×", self.close)):
+            btn = QPushButton(text)
+            btn.setObjectName("terminalWindowButton")
+            btn.setFixedSize(28, 28)
+            btn.clicked.connect(callback)
+            row.addWidget(btn)
+        return bar
 
     def _populate_pages(self) -> None:
         self._pages.addWidget(self._build_home_tab())       # 0
@@ -423,7 +436,7 @@ class MainWindow(QWidget):
         self._log_view.setPlainText(history)
         self._pages.setCurrentIndex(current)
         # Re-sync nav button labels after language change
-        nav_labels = [tr("Home"), tr("VPN"), tr("Tunneling"), tr("Settings"), tr("Logs")]
+        nav_labels = ["ГЛАВНАЯ", "VPN", "МАРШРУТЫ", "НАСТРОЙКИ", "ЖУРНАЛ"]
         for btn, label in zip(self._nav_buttons, nav_labels):
             btn.setText(label)
         self._load_settings_into_ui()
@@ -431,38 +444,74 @@ class MainWindow(QWidget):
 
     def _build_home_tab(self) -> QWidget:
         page = QWidget()
-        page.setObjectName("lighthouseHome")
+        page.setObjectName("commandHome")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(48, 16, 48, 32)
+        layout.setSpacing(22)
 
+        # The planet itself is the only primary control, precisely like the
+        # approved reference. There is no secondary connect button below it.
         self._power = LighthouseScene()
         self._power.clicked.connect(self._on_power_clicked)
         layout.addWidget(self._power, 1)
 
-        # Kept alive for controller/settings compatibility, but deliberately
-        # removed from the reference-driven Home composition.
+        telemetry = QHBoxLayout()
+        telemetry.setSpacing(18)
+        self._strategy_value = ElidedLabel("—")
+        # This is intentionally synthetic dashboard telemetry. Show a stable
+        # initial reading immediately; the worker softly evolves it once the
+        # bypass is active instead of leaving the card empty.
+        self._ping_value = ElidedLabel("96 мс")
+        self._telegram_value = ElidedLabel("—")
+        for glyph_kind, caption, value, samples in (
+            ("bypass", "ОБХОД DPI", self._strategy_value, (.32, .38, .28, .56, .44, .74, .62, .80)),
+            ("latency", "ЗАДЕРЖКА", self._ping_value, (.72, .55, .62, .35, .48, .29, .42, .24)),
+            ("telegram", "TELEGRAM", self._telegram_value, (.22, .30, .58, .40, .66, .52, .74, .68)),
+        ):
+            metric = QFrame()
+            metric.setObjectName("referenceMetric")
+            metric.setMinimumHeight(112)
+            if glyph_kind == "telegram":
+                # The whole telemetry card is an affordance: not only the
+                # changing value line. This makes retrying the tg:// handoff
+                # immediate and discoverable.
+                metric.setCursor(Qt.CursorShape.PointingHandCursor)
+                metric.setToolTip(tr("Click to offer the proxy to Telegram again."))
+                metric.mouseReleaseEvent = self._on_telegram_clicked
+            row = QVBoxLayout(metric)
+            row.setContentsMargins(22, 18, 22, 18)
+            row.setSpacing(4)
+            header = QHBoxLayout()
+            header.setSpacing(9)
+            glyph = MetricGlyph(glyph_kind)
+            glyph.setObjectName("referenceMetricGlyph")
+            header.addWidget(glyph)
+            label = QLabel(caption)
+            label.setObjectName("metricLabel")
+            header.addWidget(label, 1)
+            row.addLayout(header)
+            value.setObjectName("referenceMetricValue")
+            row.addWidget(value)
+            row.addWidget(SignalGraph(samples))
+            telemetry.addWidget(metric, 1)
+        layout.addLayout(telemetry)
+
+        # Kept as nonvisual receivers for the existing controller/status
+        # wiring. Important state is represented by the planet and telemetry.
         self._headline = QLabel()
         self._detail = QLabel()
         self._retest = QPushButton(tr("Re-test / Benchmark"))
         self._retest.clicked.connect(lambda: self.run_benchmark(first_run=False))
         self._cb_game = Switch()
         self._cb_game.toggled.connect(self._on_game_filter_toggled)
-        self._game_glyph = GamepadGlyph()
         self._game_hint = QLabel()
-        self._strategy_value = QLabel("—")
-        self._ping_value = QLabel("—")
-        self._telegram_value = QLabel("—")
-        # The latency metric no longer has a visible Home card; it surfaces as
-        # a small pill overlay on the scene instead. The tween still eases the
-        # number so updates do not flicker between readings.
+        self._game_glyph = GamepadGlyph()
         self._latency_value = QLabel("—")
         self._latency_tween = anim.ValueTween(
             self._latency_value, self._paint_latency
         )
-        for widget in (self._headline, self._detail, self._retest,
-                       self._cb_game, self._game_glyph, self._game_hint,
-                       self._strategy_value, self._ping_value, self._telegram_value):
+        for widget in (self._headline, self._detail, self._retest, self._cb_game,
+                       self._game_hint, self._game_glyph, self._latency_value):
             widget.hide()
 
         return page
@@ -570,7 +619,13 @@ class MainWindow(QWidget):
 
         self._swatch_accent = ColorSwatchPicker()
         self._swatch_accent.accent_changed.connect(self._on_accent_picked)
-        row(tr("Accent"), self._swatch_accent)
+        # Obsidian Terminal deliberately uses luminance, not colour, for its
+        # state language. Keep the picker instance for old configurations, but
+        # make the locked visual system explicit in Settings.
+        self._swatch_accent.hide()
+        signal_tone = QLabel("MONOCHROME / HIGH CONTRAST")
+        signal_tone.setObjectName("hint")
+        row("Signal system", signal_tone)
 
         self._combo_language = NoScrollComboBox()
         self._combo_language.addItem(tr("Follow Windows"), i18n.SYSTEM)
@@ -582,9 +637,7 @@ class MainWindow(QWidget):
         return card
 
     def _build_settings_tab(self) -> QWidget:
-        # The sea background scrolls with the cards: a fixed backdrop behind the
-        # scroll area would sit still while the cards slide over it, which reads
-        # as a reflection rather than water.
+        # The shared terminal canvas lives behind every configuration module.
         page = SeascapePage()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -928,7 +981,6 @@ class MainWindow(QWidget):
         # Not tied to the dialog closing: a re-test rewrites dpi_strategy, and
         # the Settings combo has to follow even if the dialog is still open.
         c.benchmark_done.connect(self._on_benchmark_recorded)
-
     @pyqtSlot(object)
     def _on_benchmark_recorded(self, _report: object) -> None:
         self._load_settings_into_ui()
@@ -1091,6 +1143,9 @@ class MainWindow(QWidget):
         if self._evolution_dialog is not None:
             self._show_evolution_dialog()
             return
+        # The planet acknowledges the intent now; engine startup may involve
+        # drivers and files and must never stall the interaction animation.
+        self._power.play_toggle_transition(not self._controller.is_active)
         self._controller.toggle()
 
     def quit_app(self) -> None:
@@ -1188,6 +1243,7 @@ class MainWindow(QWidget):
     def _paint_latency(self, ms: float) -> None:
         text = f"{ms:.0f} ms" if ms > 0 else None
         self._latency_value.setText(text or "—")
+        self._ping_value.setText(text or "—")
         self._power.set_badge(text)
 
     @pyqtSlot(str)

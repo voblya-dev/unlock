@@ -1,4 +1,4 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for Unlock.
 
 Build:
@@ -16,6 +16,8 @@ them whitelisted, and startup no longer pays for the extraction.
 """
 
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 # SPECPATH is injected by PyInstaller and points at this file's directory, so
@@ -80,7 +82,10 @@ a = Analysis(
     pathex=[str(ROOT)],
     binaries=[],
     datas=binaries_and_data,
-    hiddenimports=["cryptography.hazmat.primitives.ciphers.algorithms"],
+    hiddenimports=(
+        ["cryptography.hazmat.primitives.ciphers.algorithms"]
+        + collect_submodules("unlock")
+    ),
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "matplotlib", "numpy", "PyQt6.QtWebEngineCore"],

@@ -38,8 +38,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QPlainTextEdit,
-    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -65,7 +63,7 @@ def _card() -> QFrame:
 
 
 class AnimatedBackdrop(QWidget):
-    """Left hero panel with a soft animated orbital scene."""
+    """Obsidian installer backdrop: an understated monochrome signal grid."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -93,11 +91,12 @@ class AnimatedBackdrop(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect()
 
-        base = QLinearGradient(0, 0, rect.width(), rect.height())
-        base.setColorAt(0.0, QColor("#06111d"))
-        base.setColorAt(0.45, QColor("#0d2434"))
-        base.setColorAt(1.0, QColor("#15394d"))
-        painter.fillRect(rect, base)
+        painter.fillRect(rect, QColor("#0a0a0a"))
+        painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
+        for x in range(0, rect.width(), 24):
+            painter.drawLine(x, 0, x, rect.height())
+        for y in range(0, rect.height(), 24):
+            painter.drawLine(0, y, rect.width(), y)
 
         for idx, alpha in enumerate((110, 80, 50)):
             radius = 190 + idx * 80 + self._progress * 40
@@ -106,8 +105,8 @@ class AnimatedBackdrop(QWidget):
             cx += 22 * math.cos(self._phase * (0.9 + idx * 0.2))
             cy += 18 * math.sin(self._phase * (1.2 + idx * 0.3))
             glow = QRadialGradient(cx, cy, radius)
-            glow.setColorAt(0.0, QColor(130, 222, 255, alpha))
-            glow.setColorAt(0.55, QColor(65, 165, 220, alpha // 3))
+            glow.setColorAt(0.0, QColor(255, 255, 252, alpha // 2))
+            glow.setColorAt(0.55, QColor(190, 190, 186, alpha // 5))
             glow.setColorAt(1.0, QColor(0, 0, 0, 0))
             painter.setBrush(glow)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -116,7 +115,7 @@ class AnimatedBackdrop(QWidget):
         painter.save()
         painter.translate(rect.center())
         scale = min(rect.width(), rect.height()) * 0.62
-        ring_pen = QPen(QColor(195, 241, 255, 78), 1.5)
+        ring_pen = QPen(QColor(245, 245, 242, 68), 1.5)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for idx in range(4):
             painter.setPen(ring_pen)
@@ -131,7 +130,7 @@ class AnimatedBackdrop(QWidget):
             x = (orbit_w / 2) * math.cos(angle)
             y = (orbit_h / 2) * math.sin(angle)
             dot = 6 + (idx % 3) * 3 + self._progress * 6
-            painter.setBrush(QColor("#dbf7ff"))
+            painter.setBrush(QColor("#f5f5f2"))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(QRectF(x - dot / 2, y - dot / 2, dot, dot))
         painter.restore()
@@ -177,8 +176,8 @@ class ShimmerProgressBar(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
 
-        painter.setPen(QPen(QColor("#6ac4dd"), 1))
-        painter.setBrush(QColor("#0c1d2a"))
+        painter.setPen(QPen(QColor("#666662"), 1))
+        painter.setBrush(QColor("#101010"))
         painter.drawRoundedRect(rect, 9, 9)
 
         if self._value <= 0:
@@ -187,9 +186,9 @@ class ShimmerProgressBar(QWidget):
         fill = QRectF(rect)
         fill.setWidth(rect.width() * (self._value / 100.0))
         grad = QLinearGradient(fill.left(), fill.top(), fill.right(), fill.bottom())
-        grad.setColorAt(0.0, QColor("#48bde5"))
-        grad.setColorAt(0.5, QColor("#79f0ff"))
-        grad.setColorAt(1.0, QColor("#2e7ed9"))
+        grad.setColorAt(0.0, QColor("#92928d"))
+        grad.setColorAt(0.5, QColor("#f5f5f2"))
+        grad.setColorAt(1.0, QColor("#b9b9b4"))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(grad)
         painter.drawRoundedRect(fill, 9, 9)
@@ -227,9 +226,9 @@ class StageChip(QFrame):
     def set_state(self, state: str) -> None:
         self._state = state
         colors = {
-            "pending": ("#1a3344", "#4f7e93", "#a7c2cf"),
-            "active": ("#143c47", "#6ef3ff", "#ecfcff"),
-            "done": ("#0f4434", "#58f1ac", "#ecfff4"),
+            "pending": ("#151515", "#666662", "#a5a5a0"),
+            "active": ("#292929", "#f5f5f2", "#f5f5f2"),
+            "done": ("#202020", "#d0d0cb", "#ededE8"),
         }
         bg, dot, text = colors[state]
         self.setStyleSheet(
@@ -321,7 +320,8 @@ class InstallerWindow(QMainWindow):
         icon_path = bundled_asset("unlock-white.ico")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setMinimumSize(1120, 720)
+        self.setMinimumSize(920, 600)
+        self.resize(960, 620)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -341,11 +341,11 @@ class InstallerWindow(QMainWindow):
 
         body = QWidget()
         body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(14, 12, 14, 14)
-        body_layout.setSpacing(14)
+        body_layout.setContentsMargins(12, 10, 12, 12)
+        body_layout.setSpacing(12)
 
-        body_layout.addWidget(self._build_left_panel(), 9)
-        body_layout.addWidget(self._build_right_scroll(), 11)
+        body_layout.addWidget(self._build_left_panel(), 7)
+        body_layout.addWidget(self._build_right_panel(), 10)
         shell_layout.addWidget(body, 1)
 
         outer_layout.addWidget(self.shell)
@@ -356,48 +356,32 @@ class InstallerWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("heroFrame")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(30, 28, 30, 28)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
 
         self.hero = AnimatedBackdrop()
         self.hero.setObjectName("hero")
 
         overlay = QVBoxLayout(self.hero)
-        overlay.setContentsMargins(30, 26, 30, 26)
-        overlay.setSpacing(14)
+        overlay.setContentsMargins(28, 26, 28, 26)
+        overlay.setSpacing(12)
 
-        badge = QLabel("FAST DEPLOY")
+        badge = QLabel("UNLOCK")
         badge.setObjectName("heroBadge")
         badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         overlay.addWidget(badge)
 
-        title = QLabel("Install Unlock in one pass")
+        title = QLabel("Install\nUnlock")
         title.setWordWrap(True)
         title.setObjectName("heroTitle")
         title.setFont(QFont("Bahnschrift SemiBold", 24))
         overlay.addWidget(title)
 
-        subtitle = QLabel(
-            "Download the latest release, verify the package, deploy it into "
-            "your local programs folder and keep the post-install choices simple."
-        )
+        subtitle = QLabel("Quick, secure installation for Windows.")
         subtitle.setWordWrap(True)
         subtitle.setObjectName("heroSubtitle")
         overlay.addWidget(subtitle)
 
-        chips = QWidget()
-        chips_layout = QVBoxLayout(chips)
-        chips_layout.setContentsMargins(0, 10, 0, 0)
-        chips_layout.setSpacing(10)
-        for text in (
-            "Streams the release package with live progress",
-            "Verifies SHA-256 before touching the install folder",
-            "Creates shortcuts and optional Windows logon startup",
-        ):
-            row = QLabel(f"  {text}")
-            row.setObjectName("heroBullet")
-            chips_layout.addWidget(row)
-        overlay.addWidget(chips)
         overlay.addStretch(1)
 
         version = QLabel(f"{APP_NAME} {APP_VERSION}")
@@ -408,55 +392,23 @@ class InstallerWindow(QMainWindow):
         return panel
 
     def _build_right_panel(self) -> QWidget:
-        panel = QWidget()
+        panel = QFrame()
         panel.setObjectName("rightPanel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setContentsMargins(32, 32, 32, 28)
+        layout.setSpacing(18)
 
-        header = _card()
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(22, 20, 22, 18)
-        header_layout.setSpacing(10)
-        kicker = QLabel("Bootstrap the full app")
-        kicker.setObjectName("kicker")
-        self.status_title = QLabel("Ready to install")
+        self.status_title = QLabel("Install Unlock")
         self.status_title.setObjectName("statusTitle")
-        self.status_detail = QLabel(
-            "Review the destination and toggle the post-install options before starting."
-        )
+        self.status_detail = QLabel(f"Version {APP_VERSION}")
         self.status_detail.setWordWrap(True)
         self.status_detail.setObjectName("statusDetail")
+        layout.addWidget(self.status_title)
+        layout.addWidget(self.status_detail)
+        layout.addSpacing(8)
 
-        stages = QWidget()
-        stages_layout = QHBoxLayout(stages)
-        stages_layout.setContentsMargins(0, 10, 0, 0)
-        stages_layout.setSpacing(8)
-        self.stage_chips = [
-            StageChip("Download"),
-            StageChip("Verify"),
-            StageChip("Install"),
-            StageChip("Finish"),
-        ]
-        for chip in self.stage_chips:
-            stages_layout.addWidget(chip, 1)
-        self.stage_chips[0].set_state("active")
-
-        header_layout.addWidget(kicker)
-        header_layout.addWidget(self.status_title)
-        header_layout.addWidget(self.status_detail)
-        header_layout.addWidget(stages)
-        layout.addWidget(header)
-
-        path_card = _card()
-        path_layout = QVBoxLayout(path_card)
-        path_layout.setContentsMargins(22, 20, 22, 18)
-        path_layout.setSpacing(12)
-        path_title = QLabel("Destination")
+        path_title = QLabel("Install location")
         path_title.setObjectName("sectionTitle")
-        path_hint = QLabel("Install per-user into LocalAppData. You can override the path if needed.")
-        path_hint.setWordWrap(True)
-        path_hint.setObjectName("sectionHint")
         path_row = QWidget()
         path_row_layout = QHBoxLayout(path_row)
         path_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -467,48 +419,41 @@ class InstallerWindow(QMainWindow):
         browse.clicked.connect(self._browse_install_dir)
         path_row_layout.addWidget(self.path_edit, 1)
         path_row_layout.addWidget(browse)
-        path_layout.addWidget(path_title)
-        path_layout.addWidget(path_hint)
-        path_layout.addWidget(path_row)
-        layout.addWidget(path_card)
+        layout.addWidget(path_title)
+        layout.addWidget(path_row)
 
-        options = _card()
+        options = QWidget()
         options_layout = QVBoxLayout(options)
-        options_layout.setContentsMargins(22, 20, 22, 18)
-        options_layout.setSpacing(10)
+        options_layout.setContentsMargins(0, 0, 0, 0)
+        options_layout.setSpacing(4)
         options_title = QLabel("Options")
         options_title.setObjectName("sectionTitle")
         options_layout.addWidget(options_title)
         self.desktop_row, self.desktop_box = self._option_box(
             "Create a desktop shortcut",
-            "Easy launch point for the first-run flow.",
             checked=True,
         )
         self.start_menu_row, self.start_menu_box = self._option_box(
             "Add a Start Menu shortcut",
-            "Pins the app into the standard Programs list.",
             checked=True,
         )
         self.logon_row, self.logon_box = self._option_box(
             "Launch Unlock when you sign in",
-            "Registers a scheduled task so the elevated app can auto-start cleanly.",
             checked=False,
         )
         self.run_row, self.run_box = self._option_box(
             "Launch Unlock after install",
-            "Open the app immediately once deployment is complete.",
             checked=True,
         )
         for row in (self.desktop_row, self.start_menu_row, self.logon_row, self.run_row):
             options_layout.addWidget(row)
         layout.addWidget(options)
+        layout.addStretch(1)
 
-        progress = _card()
+        progress = QWidget()
         progress_layout = QVBoxLayout(progress)
-        progress_layout.setContentsMargins(22, 20, 22, 18)
-        progress_layout.setSpacing(12)
-        progress_title = QLabel("Transfer")
-        progress_title.setObjectName("sectionTitle")
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(8)
         progress_top = QWidget()
         progress_top_layout = QHBoxLayout(progress_top)
         progress_top_layout.setContentsMargins(0, 0, 0, 0)
@@ -518,26 +463,20 @@ class InstallerWindow(QMainWindow):
         self.progress_label.setObjectName("progressValue")
         progress_top_layout.addWidget(self.progress_bar, 1)
         progress_top_layout.addWidget(self.progress_label)
-        self.progress_note = QLabel("Waiting for install start")
+        self.progress_note = QLabel("Ready to install")
         self.progress_note.setObjectName("sectionHint")
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setObjectName("logView")
-        self.log_view.setMinimumHeight(185)
-        progress_layout.addWidget(progress_title)
         progress_layout.addWidget(progress_top)
         progress_layout.addWidget(self.progress_note)
-        progress_layout.addWidget(self.log_view, 1)
-        layout.addWidget(progress, 1)
+        layout.addWidget(progress)
 
         buttons = QWidget()
         buttons_layout = QHBoxLayout(buttons)
         buttons_layout.setContentsMargins(0, 0, 0, 0)
         buttons_layout.setSpacing(10)
-        self.secondary_btn = QPushButton("Close")
+        self.secondary_btn = QPushButton("Cancel")
         self.secondary_btn.setObjectName("secondaryButton")
         self.secondary_btn.clicked.connect(self._on_secondary_clicked)
-        self.primary_btn = QPushButton("Install Unlock")
+        self.primary_btn = QPushButton("Install")
         self.primary_btn.setObjectName("primaryButton")
         self.primary_btn.clicked.connect(self._start_install)
         buttons_layout.addStretch(1)
@@ -547,16 +486,6 @@ class InstallerWindow(QMainWindow):
 
         return panel
 
-    def _build_right_scroll(self) -> QScrollArea:
-        scroll = QScrollArea()
-        scroll.setObjectName("rightScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setWidget(self._build_right_panel())
-        return scroll
-
     def _wire_intro(self) -> None:
         for index, widget in enumerate((self.shell, self.centralWidget())):
             effect = widget.graphicsEffect()
@@ -564,91 +493,85 @@ class InstallerWindow(QMainWindow):
                 continue
             effect.setEnabled(index == 0)
 
-    def _option_box(self, title: str, detail: str, *, checked: bool) -> tuple[QWidget, QCheckBox]:
+    def _option_box(self, title: str, *, checked: bool) -> tuple[QWidget, QCheckBox]:
         row = QWidget()
         row.setObjectName("optionRow")
         row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        row.setMinimumHeight(72)
-        layout = QVBoxLayout(row)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(4)
+        row.setMinimumHeight(38)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
         box = QCheckBox(title)
         box.setChecked(checked)
         box.setObjectName("optionBox")
-        detail_label = QLabel(detail)
-        detail_label.setWordWrap(True)
-        detail_label.setObjectName("optionHint")
         layout.addWidget(box)
-        layout.addWidget(detail_label)
+        layout.addStretch(1)
         return row, box
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
             """
             QWidget {
-                color: #eff8ff;
-                font-family: "Segoe UI";
+                color: #f5f5f2;
+                font-family: "Segoe UI Variable", "Segoe UI";
                 font-size: 13px;
             }
             QMainWindow {
                 background: transparent;
             }
             #shell {
-                background: #091722;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 30px;
+                background: #0a0a0a;
+                border: 1px solid #303030;
+                border-radius: 16px;
             }
             #heroFrame {
                 background: transparent;
             }
             #hero {
-                border-radius: 26px;
-                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 12px;
+                border: none;
             }
             #heroBadge {
-                color: #9deeff;
-                background: rgba(12, 35, 50, 0.72);
-                border: 1px solid rgba(157, 238, 255, 0.24);
-                border-radius: 12px;
+                color: #f5f5f2;
+                background: #181818;
+                border: 1px solid #555550;
+                border-radius: 4px;
                 font-size: 11px;
                 font-weight: 700;
                 padding: 6px 10px;
             }
             #heroTitle {
                 color: white;
-                font-size: 28px;
+                font-size: 30px;
                 font-weight: 700;
             }
             #heroSubtitle {
-                color: rgba(236, 248, 255, 0.80);
+                color: #b3b3ae;
                 font-size: 14px;
             }
             #heroBullet {
-                color: rgba(242, 252, 255, 0.88);
-                background: rgba(7, 20, 30, 0.18);
-                border: 1px solid rgba(255,255,255,0.06);
-                border-radius: 14px;
+                color: #d0d0cb;
+                background: #151515;
+                border: 1px solid #303030;
+                border-radius: 4px;
                 padding: 10px 12px;
                 font-size: 13px;
             }
             #heroVersion {
-                color: rgba(255,255,255,0.56);
+                color: #7b7b77;
                 font-size: 12px;
             }
-            #card {
-                background: rgba(13, 31, 44, 0.92);
-                border: 1px solid rgba(255,255,255,0.06);
-                border-radius: 22px;
+            #rightPanel {
+                background: transparent;
             }
             #titleBarText {
-                color: rgba(240, 248, 255, 0.84);
+                color: #b9b9b4;
                 font-size: 12px;
                 font-weight: 600;
             }
             #titleButton {
-                background: rgba(255,255,255,0.04);
-                border: 1px solid rgba(255,255,255,0.06);
-                border-radius: 10px;
+                background: transparent;
+                border: none;
+                border-radius: 4px;
                 color: rgba(255,255,255,0.75);
                 font-size: 14px;
                 font-weight: 600;
@@ -657,21 +580,21 @@ class InstallerWindow(QMainWindow):
                 background: rgba(255,255,255,0.10);
             }
             #closeButton:hover {
-                background: rgba(255, 74, 74, 0.90);
-                color: white;
+                background: #f5f5f2;
+                color: #0a0a0a;
             }
             #kicker {
-                color: #7ae8ff;
+                color: #bdbdb8;
                 font-size: 11px;
                 font-weight: 700;
             }
             #statusTitle {
                 color: white;
                 font-family: "Bahnschrift SemiBold";
-                font-size: 25px;
+                font-size: 28px;
             }
-            #statusDetail, #sectionHint, #optionHint {
-                color: rgba(235, 247, 255, 0.68);
+            #statusDetail, #sectionHint {
+                color: #a5a5a0;
             }
             #sectionTitle {
                 color: white;
@@ -679,73 +602,56 @@ class InstallerWindow(QMainWindow):
                 font-weight: 700;
             }
             #pathEdit {
-                background: rgba(5, 15, 24, 0.76);
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 14px;
+                background: #0a0a0a;
+                border: 1px solid #3a3a38;
+                border-radius: 4px;
                 padding: 0 14px;
                 min-height: 46px;
                 color: white;
-                selection-background-color: #4bc6ee;
+                selection-background-color: #f5f5f2;
             }
             #pathEdit:focus {
-                border-color: rgba(122, 232, 255, 0.54);
+                border-color: #f5f5f2;
             }
             QPushButton {
-                background: rgba(12, 29, 41, 0.95);
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 14px;
+                background: #161616;
+                border: 1px solid #393939;
+                border-radius: 4px;
                 color: white;
                 min-height: 46px;
                 padding: 0 18px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background: rgba(22, 49, 67, 0.95);
+                background: #242424;
             }
             QPushButton:disabled {
-                color: rgba(255,255,255,0.40);
-                border-color: rgba(255,255,255,0.04);
-                background: rgba(11, 22, 30, 0.88);
+                color: #747470;
+                border-color: #282828;
+                background: #101010;
             }
             #primaryButton {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #4cd8ff,
-                    stop:0.55 #58b6ff,
-                    stop:1 #2f74ff
-                );
-                color: #031018;
-                border: none;
+                background: #f5f5f2;
+                color: #0a0a0a;
+                border: 1px solid #f5f5f2;
                 padding: 13px 22px;
                 font-weight: 800;
             }
             #primaryButton:hover {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #79e8ff,
-                    stop:0.55 #7bc8ff,
-                    stop:1 #4e8cff
-                );
+                background: white;
             }
             #secondaryButton {
                 min-width: 110px;
             }
-            #rightScroll {
-                background: transparent;
-            }
-            #rightScroll > QWidget > QWidget {
-                background: transparent;
-            }
             #optionRow {
-                background: rgba(8, 20, 29, 0.72);
-                border: 1px solid rgba(255,255,255,0.05);
-                border-radius: 16px;
+                background: transparent;
+                border: none;
             }
             QCheckBox {
                 spacing: 10px;
-                color: white;
-                font-size: 13px;
-                font-weight: 600;
+                color: #d0d0cb;
+                font-size: 12px;
+                font-weight: 500;
                 min-height: 24px;
             }
             QCheckBox::indicator {
@@ -753,43 +659,19 @@ class InstallerWindow(QMainWindow):
                 height: 20px;
             }
             QCheckBox::indicator:unchecked {
-                border-radius: 6px;
-                border: 1px solid rgba(255,255,255,0.18);
-                background: rgba(255,255,255,0.04);
+                border-radius: 3px;
+                border: 1px solid #5b5b57;
+                background: #111111;
             }
             QCheckBox::indicator:checked {
-                border-radius: 6px;
-                border: 1px solid rgba(255,255,255,0.12);
-                background: #5fe5ff;
+                border-radius: 3px;
+                border: 1px solid #f5f5f2;
+                background: #f5f5f2;
             }
             #progressValue {
-                color: #9deeff;
+                color: #f5f5f2;
                 font-size: 15px;
                 font-weight: 800;
-            }
-            #logView {
-                background: rgba(4, 12, 19, 0.88);
-                border: 1px solid rgba(255,255,255,0.07);
-                border-radius: 16px;
-                padding: 12px;
-                color: #98b7c8;
-                font-family: "Cascadia Mono";
-                font-size: 11px;
-            }
-            QScrollBar:vertical {
-                width: 10px;
-                margin: 8px 3px 8px 0;
-                background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(116, 196, 226, 0.28);
-                border-radius: 5px;
-                min-height: 28px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                height: 0px;
-                background: transparent;
             }
             """
         )
@@ -804,13 +686,12 @@ class InstallerWindow(QMainWindow):
             self.path_edit.setText(selected)
 
     def _log(self, text: str) -> None:
-        self.log_view.appendPlainText(text)
-        self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
+        # Keep the primary flow quiet like a standard Windows installer. Errors
+        # are surfaced in a dialog; this short in-memory trace is only useful
+        # while the process is alive for debugging from a parent launcher.
+        self._last_log = text
 
     def _set_stage(self, index: int, title: str, detail: str) -> None:
-        for idx, chip in enumerate(self.stage_chips):
-            chip.set_state("done" if idx < index else "pending")
-        self.stage_chips[index].set_state("active")
         self.status_title.setText(title)
         self.status_detail.setText(detail)
 
@@ -852,15 +733,15 @@ class InstallerWindow(QMainWindow):
         self.secondary_btn.setEnabled(True)
         if running:
             self.secondary_btn.setText("Cancel")
-            self.primary_btn.setText("Installing...")
+            self.primary_btn.setText("Installing…")
         else:
-            self.secondary_btn.setText("Close")
-            self.primary_btn.setText("Install Unlock")
+            self.secondary_btn.setText("Cancel")
+            self.primary_btn.setText("Install")
 
     def _start_install(self) -> None:
         install_dir = self.path_edit.text().strip()
         if not install_dir:
-            QMessageBox.warning(self, "Missing folder", "Select an install folder first.")
+            QMessageBox.warning(self, "Choose a folder", "Choose an install folder first.")
             return
         options = self._collect_options()
         self._thread = InstallerThread(options)
@@ -877,11 +758,9 @@ class InstallerWindow(QMainWindow):
     def _install_succeeded(self, exe_path: str) -> None:
         self._state.done = True
         self._set_running(False)
-        for chip in self.stage_chips:
-            chip.set_state("done")
         self.status_title.setText("Unlock is installed")
-        self.status_detail.setText(f"Installed executable: {exe_path}")
-        self.progress_note.setText("Deployment finished")
+        self.status_detail.setText("You can close the installer.")
+        self.progress_note.setText("Installation complete")
         self.primary_btn.setEnabled(False)
         self.secondary_btn.setText("Close")
         self._log(f"Installer: complete -> {exe_path}")
@@ -891,15 +770,15 @@ class InstallerWindow(QMainWindow):
         self._set_running(False)
         self.status_title.setText("Installation failed")
         self.status_detail.setText(message)
-        self.progress_note.setText("Fix the issue and run again")
+        self.progress_note.setText("Fix the problem and try again")
         self._log(f"Installer: failed -> {message}")
-        QMessageBox.critical(self, "Install failed", message)
+        QMessageBox.critical(self, "Installation failed", message)
 
     def _install_cancelled(self) -> None:
         self._state.done = False
         self._set_running(False)
         self.status_title.setText("Installation cancelled")
-        self.status_detail.setText("No further changes were made after the cancel request.")
+        self.status_detail.setText("Change the options and start again when ready.")
         self.progress_note.setText("Cancelled")
         self._log("Installer: cancelled")
 
@@ -907,7 +786,7 @@ class InstallerWindow(QMainWindow):
         if self._state.running and self._thread is not None:
             self._thread.cancel()
             self.secondary_btn.setEnabled(False)
-            self.secondary_btn.setText("Cancelling...")
+            self.secondary_btn.setText("Cancelling…")
             self._log("Installer: cancel requested")
             return
         self.close()
@@ -916,8 +795,8 @@ class InstallerWindow(QMainWindow):
         if self._state.running:
             QMessageBox.information(
                 self,
-                "Install in progress",
-                "Cancel the install first or wait for it to finish.",
+                "Installation in progress",
+                "Cancel the installation first or wait for it to finish.",
             )
             event.ignore()
             return

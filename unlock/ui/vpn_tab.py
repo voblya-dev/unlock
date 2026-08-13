@@ -7,14 +7,22 @@ without opening anything.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PyQt6.QtCore import (
+    QEasingCurve,
+    QPointF,
+    QRectF,
+    QPropertyAnimation,
     QThread,
     Qt,
+    QTimer,
+    pyqtProperty,
     pyqtSignal,
     pyqtSlot,
 )
+from PyQt6.QtGui import QPainter, QPen
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -31,10 +39,10 @@ from ..controller import State
 from ..vpn_links import Profile, VpnLinkError
 from . import anim, theme
 from .i18n import tr
-from .power_button import PowerButton
 from .seascape import SeascapePage
 from .stats_panel import StatsPanel
 from .vpn_add_dialog import AddServersDialog, DropZone
+from .widgets import ElidedLabel
 
 _PROTOCOL_LABEL = {
     "vless": "VLESS",
@@ -74,6 +82,143 @@ class DropImportWorker(QThread):
         self.done.emit(profiles, errors)
 
 
+class TunnelOrbitButton(QWidget):
+    """A monochrome VPN control: an orbit and lock instead of a generic power icon."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None, size: int = 176) -> None:
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tr("Connect or disconnect VPN"))
+        self._state = State.IDLE
+        self._phase = 0.0
+        self._hover = 0.0
+        self._press = 0.0
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._tick)
+        self._hover_animation = QPropertyAnimation(self, b"hoverAmount", self)
+        self._hover_animation.setDuration(320)
+        self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._press_animation = QPropertyAnimation(self, b"pressAmount", self)
+        self._press_animation.setDuration(240)
+        self._press_animation.setEasingCurve(QEasingCurve.Type.OutBack)
+
+    def set_state(self, state: State) -> None:
+        self._state = state
+        if state in (State.CONNECTING, State.DISCONNECTING, State.ACTIVE):
+            self._timer.start()
+        else:
+            # Keep one continuous phase. Starting again from a reset phase is
+            # perceived as a visual hitch at the state boundary.
+            self._timer.start()
+        self.update()
+
+    def restyle(self) -> None:
+        self.update()
+
+    def _tick(self) -> None:
+        self._phase = (self._phase + .010) % (math.tau * 1000)
+        self.update()
+
+    def _get_hover(self) -> float:
+        return self._hover
+
+    def _set_hover(self, value: float) -> None:
+        self._hover = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    hoverAmount = pyqtProperty(float, fget=_get_hover, fset=_set_hover)
+
+    def _get_press(self) -> float:
+        return self._press
+
+    def _set_press(self, value: float) -> None:
+        self._press = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    pressAmount = pyqtProperty(float, fget=_get_press, fset=_set_press)
+
+    def _animate(self, animation: QPropertyAnimation, current: float, target: float) -> None:
+        animation.stop()
+        animation.setStartValue(current)
+        animation.setEndValue(target)
+        animation.start()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        center = QPointF(self.width() / 2, self.height() / 2)
+        pulse = .004 * math.sin(self._phase * .78) if self._state is State.ACTIVE else 0.0
+        radius = min(self.width(), self.height()) * (.39 + .025 * self._hover + pulse)
+        center += QPointF(0, self._press * 4)
+        box = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
+        fg = theme.qcolor(theme.TEXT)
+        muted = theme.qcolor(theme.TEXT_FAINT)
+        muted.setAlpha(145)
+        active = theme.qcolor(theme.DANGER if self._state is State.ERROR else theme.TEXT)
+        busy = self._state in (State.CONNECTING, State.DISCONNECTING)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if self._state is State.ACTIVE:
+            painter.setPen(QPen(active, 2.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawEllipse(box)
+        elif busy:
+            painter.setPen(QPen(muted, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawEllipse(box)
+            painter.setPen(QPen(active, 3.1, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.drawArc(box.adjusted(2, 2, -2, -2), int(-self._phase * 1700) % (360 * 16), 112 * 16)
+        else:
+            painter.setPen(QPen(active if self._state is State.ERROR else muted, 2.2,
+                                Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            for start in (12, 102, 192, 282):
+                painter.drawArc(box, start * 16, 62 * 16)
+
+        # A lock makes this a tunnel control rather than another copy of the
+        # Home screen's planet control.
+        lock_w, lock_h = radius * .72, radius * .58
+        body = QRectF(center.x() - lock_w / 2, center.y() - lock_h * .05, lock_w, lock_h)
+        shackle = QRectF(center.x() - lock_w * .30, center.y() - lock_h * .64,
+                         lock_w * .60, lock_h * .90)
+        painter.setPen(QPen(active, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.setBrush(theme.qcolor(theme.BG) if self._state is not State.ACTIVE else fg)
+        painter.drawRoundedRect(body, 6, 6)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawArc(shackle, 0, 180 * 16)
+        painter.setPen(QPen(theme.qcolor(theme.BG) if self._state is State.ACTIVE else active,
+                            2.1, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(center.x(), center.y() + lock_h * .18),
+                         QPointF(center.x(), center.y() + lock_h * .36))
+        painter.drawEllipse(QPointF(center.x(), center.y() + lock_h * .10), 2.5, 2.5)
+        if self._state is State.ACTIVE:
+            glow = theme.qcolor(theme.TEXT)
+            glow.setAlpha(int(90 + 70 * (1 + math.sin(self._phase)) / 2))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(glow)
+            painter.drawEllipse(QPointF(center.x() + radius * .74, center.y() - radius * .40), 3.2, 3.2)
+        painter.end()
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() is Qt.MouseButton.LeftButton:
+            self._animate(self._press_animation, self._press, 0.0)
+            self.clicked.emit()
+
+    def enterEvent(self, event) -> None:
+        self._animate(self._hover_animation, self._hover, 1.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._animate(self._hover_animation, self._hover, 0.0)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() is Qt.MouseButton.LeftButton:
+            self._animate(self._press_animation, self._press, 1.0)
+        super().mousePressEvent(event)
+
+
 class ProfileCard(QFrame):
     """One saved server. Selecting it is a click anywhere on the card."""
 
@@ -95,17 +240,14 @@ class ProfileCard(QFrame):
 
         text = QVBoxLayout()
         text.setSpacing(1)
-        name = QLabel(profile.name)
+        name = ElidedLabel(profile.name)
         name.setStyleSheet("font-weight: 600;")
         text.addWidget(name)
-        detail = QLabel(f"{_protocol_label(profile)} · {profile.endpoint}")
+        detail = ElidedLabel(f"{_protocol_label(profile)} · {profile.endpoint}")
         detail.setObjectName("hint")
         text.addWidget(detail)
         # A server name or endpoint can be arbitrarily long. Without this the
         # card claims the full text width and is clipped by the scroll area.
-        for label in (name, detail):
-            label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-            label.setToolTip(label.text())
         layout.addLayout(text, 1)
 
         remove = QPushButton("×")
@@ -216,40 +358,52 @@ class VpnTab(SeascapePage):
     # ------------------------------------------------------------- layout
 
     def _build_power_card(self) -> QWidget:
-        """The VPN's own switch, sized like the one on Home."""
+        """A VPN dashboard with a distinct lock-orbit control."""
         card = QFrame()
-        card.setObjectName("card")
+        card.setObjectName("vpnMissionCard")
         card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 18, 16, 16)
-        layout.setSpacing(10)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(30, 24, 30, 24)
+        layout.setSpacing(30)
 
-        self._power = PowerButton(size=250)
+        self._power = TunnelOrbitButton(size=176)
         self._power.clicked.connect(self._controller.vpn_toggle)
-        holder = QHBoxLayout()
-        holder.addStretch(1)
-        holder.addWidget(self._power)
-        holder.addStretch(1)
-        layout.addLayout(holder)
+        layout.addWidget(self._power)
 
-        self._power_headline = QLabel(tr("VPN off"))
-        self._power_headline.setObjectName("statusHeadline")
-        self._power_headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._power_headline)
+        content = QVBoxLayout()
+        content.setSpacing(5)
+        kicker = QLabel("ЧАСТНЫЙ ТУННЕЛЬ / УПРАВЛЕНИЕ VPN")
+        kicker.setObjectName("vpnMissionKicker")
+        content.addWidget(kicker)
 
-        self._power_detail = QLabel("")
-        self._power_detail.setObjectName("statusDetail")
-        self._power_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._power_detail.setWordWrap(True)
-        self._power_detail.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
-        # Room for two lines from the start, so a wrapping server name does not
-        # shift the button above it.
-        self._power_detail.setMinimumHeight(
-            self._power_detail.fontMetrics().lineSpacing() * 2
-        )
-        layout.addWidget(self._power_detail)
+        self._power_headline = ElidedLabel(tr("VPN off"))
+        self._power_headline.setObjectName("vpnMissionHeadline")
+        content.addWidget(self._power_headline)
+
+        self._power_detail = ElidedLabel("")
+        self._power_detail.setObjectName("vpnMissionDetail")
+        content.addWidget(self._power_detail)
+        interaction = QLabel("НАЖМИТЕ НА ОРБИТУ ДЛЯ ПОДКЛЮЧЕНИЯ")
+        interaction.setObjectName("vpnMissionHint")
+        content.addWidget(interaction)
+        content.addStretch(1)
+        layout.addLayout(content, 1)
+
+        rail = QFrame()
+        rail.setObjectName("vpnStateRail")
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(16, 14, 16, 14)
+        rail_layout.setSpacing(5)
+        route_label = QLabel("ВЫБРАННЫЙ МАРШРУТ")
+        route_label.setObjectName("metricLabel")
+        rail_layout.addWidget(route_label)
+        self._route_value = ElidedLabel("СЕРВЕР НЕ ВЫБРАН")
+        self._route_value.setObjectName("vpnRouteValue")
+        rail_layout.addWidget(self._route_value)
+        self._route_state = QLabel("ОЖИДАНИЕ")
+        self._route_state.setObjectName("vpnRouteState")
+        rail_layout.addWidget(self._route_state)
+        layout.addWidget(rail, 0)
 
         missing = [
             name for name, found in (
@@ -270,12 +424,12 @@ class VpnTab(SeascapePage):
             warning.setWordWrap(True)
             warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
             warning.setStyleSheet(f"color: {theme.WARNING};")
-            layout.addWidget(warning)
+            content.addWidget(warning)
 
         # The layout will still squeeze a Fixed card when the stats panel grows
         # in below it, and the button then paints over its own caption. A floor
         # under the height is what actually stops that.
-        card.setMinimumHeight(card.sizeHint().height())
+        card.setMinimumHeight(224)
         return card
 
     def _build_list_card(self) -> QWidget:
@@ -348,6 +502,14 @@ class VpnTab(SeascapePage):
         self._show_stats(state is State.ACTIVE)
         anim.crossfade_text(self._power_headline, headline)
         anim.crossfade_text(self._power_detail, detail)
+        route = profile.name if profile else tr("No server selected")
+        self._route_value.setText(route)
+        self._route_state.setText({
+            State.ACTIVE: "ТУННЕЛЬ АКТИВЕН",
+            State.CONNECTING: "ПОДКЛЮЧЕНИЕ",
+            State.DISCONNECTING: "ОТКЛЮЧЕНИЕ",
+            State.ERROR: "ОШИБКА ПОДКЛЮЧЕНИЯ",
+        }.get(state, "ОЖИДАНИЕ"))
 
     def _show_stats(self, visible: bool) -> None:
         if visible == self._stats.isVisible():
@@ -451,15 +613,6 @@ class VpnTab(SeascapePage):
             anim.expand(self._status)
         elif not text and was_visible:
             anim.collapse(self._status)
-
-
-
-
-
-
-
-
-
 
 
 

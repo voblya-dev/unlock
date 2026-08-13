@@ -24,7 +24,7 @@ from . import sounds
 from .sounds import connected as _sound_connected
 from .sounds import disconnected as _sound_disconnected
 from .sounds import failed as _sound_failed
-from .strategies import find_strategy, load_strategies
+from .strategies import find_strategy, load_evolved, load_strategies
 from .system_proxy import SystemProxy, restore_orphaned
 from .telegram_proxy import TelegramProxy, TelegramProxyError
 from .tunnel_stats import TunnelStats
