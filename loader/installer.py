@@ -237,7 +237,11 @@ def resolve_manifest(log: LogCallback) -> ReleaseManifest:
     manifest_url = env_url or DEFAULT_MANIFEST_URL
     try:
         log(f"Manifest: requesting {manifest_url}")
-        response = requests.get(manifest_url, timeout=10)
+        response = requests.get(
+            manifest_url,
+            headers={"User-Agent": f"{APP_NAME}-loader/{LOADER_VERSION}"},
+            timeout=(10, 30),
+        )
         response.raise_for_status()
         manifest = ReleaseManifest.from_dict(response.json())
         if not _supports_manifest(manifest):
@@ -272,29 +276,48 @@ def _download_stream(
     cancel: threading.Event,
 ) -> None:
     if _is_url(source):
-        try:
-            with requests.get(source, stream=True, timeout=20) as response:
-                response.raise_for_status()
-                total = int(response.headers.get("Content-Length") or 0)
-                downloaded = 0
-                with target.open("wb") as handle:
-                    for chunk in response.iter_content(chunk_size=1024 * 256):
-                        if cancel.is_set():
-                            raise CancelledError()
-                        if not chunk:
-                            continue
-                        handle.write(chunk)
-                        downloaded += len(chunk)
-                        percent = int(downloaded * 100 / total) if total else 0
-                        progress(percent, _format_bytes(downloaded, total))
-        except RequestException as exc:
-            status = ""
-            response = getattr(exc, "response", None)
-            if response is not None and response.status_code:
-                status = f" (HTTP {response.status_code})"
-            raise RuntimeError(f"Download failed for {source}{status}") from exc
-        progress(100, tr("Package downloaded"))
-        return
+        last_error: RequestException | None = None
+        headers = {
+            "User-Agent": f"{APP_NAME}-loader/{LOADER_VERSION}",
+            "Accept": "application/octet-stream",
+        }
+        # GitHub release URLs redirect to a large object-store asset. A short
+        # single timeout can fail after the redirect even though the download
+        # itself is healthy, so use a connect/read timeout and retry the whole
+        # stream a few times. Each retry truncates the partial file safely.
+        for attempt in range(3):
+            try:
+                with requests.get(
+                    source,
+                    headers=headers,
+                    stream=True,
+                    timeout=(15, 120),
+                ) as response:
+                    response.raise_for_status()
+                    total = int(response.headers.get("Content-Length") or 0)
+                    downloaded = 0
+                    with target.open("wb") as handle:
+                        for chunk in response.iter_content(chunk_size=1024 * 256):
+                            if cancel.is_set():
+                                raise CancelledError()
+                            if not chunk:
+                                continue
+                            handle.write(chunk)
+                            downloaded += len(chunk)
+                            percent = int(downloaded * 100 / total) if total else 0
+                            progress(percent, _format_bytes(downloaded, total))
+                progress(100, tr("Package downloaded"))
+                return
+            except RequestException as exc:
+                last_error = exc
+                if attempt < 2:
+                    time.sleep(1.5 * (attempt + 1))
+
+        status = ""
+        response = getattr(last_error, "response", None)
+        if response is not None and response.status_code:
+            status = f" (HTTP {response.status_code})"
+        raise RuntimeError(f"Download failed for {source}{status}") from last_error
 
     source_path = Path(source)
     total = source_path.stat().st_size
