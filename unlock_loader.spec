@@ -8,10 +8,9 @@ ROOT = Path(SPECPATH)  # noqa: F821
 
 loader_assets = []
 for asset in (
-    "unlock-white.ico",
-    "unlock.ico",
-    "unlock.png",
-    "unlock-fill.png",
+    "unlock-mask.ico",
+    "unlock-mask.png",
+    "unlock-readme.png",
 ):
     path = ROOT / "assets" / asset
     if path.exists():
@@ -55,5 +54,5 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     uac_admin=False,
-    icon="assets/unlock-white.ico" if (ROOT / "assets" / "unlock-white.ico").exists() else None,
+    icon="assets/unlock-mask.ico" if (ROOT / "assets" / "unlock-mask.ico").exists() else None,
 )

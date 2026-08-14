@@ -23,6 +23,7 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -61,17 +62,92 @@ def _card() -> QFrame:
 
 
 class MinimalBackdrop(QFrame):
-    """Static brand panel with no decorative or continuous animation."""
+    """Static brand panel with a large, low-contrast mask watermark."""
 
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("hero")
+        self._mask = QPixmap(str(bundled_asset("unlock-readme.png")))
 
     def sizeHint(self) -> QSize:
         return QSize(300, 560)
 
     def set_progress(self, value: int) -> None:
         """Preserve the existing install callback without visual side effects."""
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._mask.isNull():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setOpacity(0.16)
+        side = max(int(self.width() * 0.96), int(self.height() * 0.80))
+        target = QRectF(
+            (self.width() - side) / 2,
+            (self.height() - side) / 2,
+            side,
+            side,
+        )
+        painter.drawPixmap(target.toRect(), self._mask)
+
+
+class OptionCheckBox(QCheckBox):
+    """A compact checkbox with an explicit, high-contrast tick mark."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__(title)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        side = 18
+        box = QRectF(10, (self.height() - side) / 2, side, side)
+        checked = self.isChecked()
+        painter.setPen(QPen(QColor("#f5f5f2") if checked else QColor("#686864"), 1.2))
+        painter.setBrush(QColor("#f5f5f2") if checked else QColor("#0a0a0a"))
+        painter.drawRoundedRect(box, 4, 4)
+        if checked:
+            tick = QPainterPath()
+            tick.moveTo(box.left() + 4, box.center().y())
+            tick.lineTo(box.left() + 7.5, box.bottom() - 4.5)
+            tick.lineTo(box.right() - 3.5, box.top() + 4.5)
+            painter.setPen(QPen(QColor("#0a0a0a"), 2.0, cap=Qt.PenCapStyle.RoundCap))
+            painter.drawPath(tick)
+        painter.setPen(QColor("#f1f1ed") if self.isEnabled() else QColor("#747470"))
+        painter.setFont(self.font())
+        painter.drawText(
+            self.rect().adjusted(40, 0, -10, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            self.text(),
+        )
+
+
+class WindowControlButton(QPushButton):
+    """Font-independent minimize and close controls for the frameless window."""
+
+    def __init__(self, kind: str) -> None:
+        super().__init__()
+        self._kind = kind
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        hover = self.underMouse()
+        if hover:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#f5f5f2") if self._kind == "close" else QColor("#242424"))
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 7, 7)
+        color = QColor("#0a0a0a") if hover and self._kind == "close" else QColor("#d6d6d1")
+        painter.setPen(QPen(color, 1.6, cap=Qt.PenCapStyle.RoundCap))
+        cx, cy = self.width() / 2, self.height() / 2
+        if self._kind == "minimize":
+            painter.drawLine(QPoint(int(cx - 5), int(cy + 3)), QPoint(int(cx + 5), int(cy + 3)))
+        else:
+            painter.drawLine(QPoint(int(cx - 4), int(cy - 4)), QPoint(int(cx + 4), int(cy + 4)))
+            painter.drawLine(QPoint(int(cx + 4), int(cy - 4)), QPoint(int(cx - 4), int(cy + 4)))
 
 
 class ShimmerProgressBar(QWidget):
@@ -207,8 +283,8 @@ class TitleBar(QWidget):
         layout.addWidget(title)
         layout.addStretch(1)
 
-        self.min_btn = QPushButton("-")
-        self.close_btn = QPushButton("x")
+        self.min_btn = WindowControlButton("minimize")
+        self.close_btn = WindowControlButton("close")
         for button in (self.min_btn, self.close_btn):
             button.setObjectName("titleButton")
             button.setFixedSize(34, 28)
@@ -300,14 +376,7 @@ class InstallerWindow(QMainWindow):
         overlay = QVBoxLayout(self.hero)
         overlay.setContentsMargins(28, 26, 28, 26)
         overlay.setSpacing(12)
-
-        logo = QLabel()
-        logo.setObjectName("heroLogo")
-        icon_path = bundled_asset("unlock-mask.ico")
-        if icon_path.exists():
-            logo.setPixmap(QIcon(str(icon_path)).pixmap(72, 72))
-        logo.setFixedHeight(78)
-        overlay.addWidget(logo)
+        overlay.addStretch(1)
 
         badge = QLabel("UNLOCK FOR WINDOWS")
         badge.setObjectName("heroBadge")
@@ -325,7 +394,7 @@ class InstallerWindow(QMainWindow):
         subtitle.setObjectName("heroSubtitle")
         overlay.addWidget(subtitle)
 
-        overlay.addStretch(1)
+        overlay.addStretch(2)
 
         version = QLabel(f"{APP_NAME} {APP_VERSION}")
         version.setObjectName("heroVersion")
@@ -414,6 +483,7 @@ class InstallerWindow(QMainWindow):
         layout.addWidget(progress)
 
         buttons = QWidget()
+        buttons.setObjectName("buttonRow")
         buttons_layout = QHBoxLayout(buttons)
         buttons_layout.setContentsMargins(0, 0, 0, 0)
         buttons_layout.setSpacing(10)
@@ -448,7 +518,7 @@ class InstallerWindow(QMainWindow):
         row.setFixedHeight(40)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
-        box = QCheckBox(title)
+        box = OptionCheckBox(title)
         box.setChecked(checked)
         box.setObjectName("optionBox")
         layout.addWidget(box)
@@ -477,11 +547,10 @@ class InstallerWindow(QMainWindow):
             #hero {
                 border-radius: 12px;
                 border: 1px solid #242424;
-                background: #101010;
+                background: #0d0d0d;
             }
             #heroBadge {
                 color: #f5f5f2;
-                color: #7ee7f1;
                 background: transparent;
                 border: none;
                 border-radius: 0;
@@ -509,9 +578,6 @@ class InstallerWindow(QMainWindow):
             #heroVersion {
                 color: #7b7b77;
                 font-size: 12px;
-            }
-            #heroLogo {
-                background: transparent;
             }
             #rightPanel {
                 background: transparent;
@@ -585,28 +651,18 @@ class InstallerWindow(QMainWindow):
                 background: #101010;
             }
             #primaryButton {
-                background: #79dfe9;
-                color: #071113;
-                border: 1px solid #79dfe9;
+                background: #f5f5f2;
+                color: #0a0a0a;
+                border: 1px solid #f5f5f2;
                 padding: 13px 22px;
                 font-weight: 800;
             }
             #primaryButton:hover {
-                background: #a4f4fb;
-                border-color: #a4f4fb;
+                background: #ffffff;
+                border-color: #ffffff;
             }
-            #secondaryButton {
+            #buttonRow QPushButton {
                 min-width: 118px;
-            }
-            #dangerButton {
-                min-width: 104px;
-                color: #f1b4b4;
-                border-color: #6e3c3c;
-            }
-            #dangerButton:hover {
-                background: #2a1616;
-                border-color: #c66b6b;
-                color: #ffd4d4;
             }
             #optionRow {
                 background: #111111;
@@ -614,26 +670,10 @@ class InstallerWindow(QMainWindow):
                 border-radius: 8px;
             }
             QCheckBox {
-                spacing: 12px;
-                color: #dfdfda;
+                background: transparent;
+                border: none;
                 font-size: 13px;
                 font-weight: 500;
-                min-height: 26px;
-                padding: 7px 10px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-            QCheckBox::indicator:unchecked {
-                border-radius: 5px;
-                border: 1px solid #62625d;
-                background: #0a0a0a;
-            }
-            QCheckBox::indicator:checked {
-                border-radius: 5px;
-                border: 1px solid #79dfe9;
-                background: #79dfe9;
             }
             #progressValue {
                 color: #f5f5f2;
