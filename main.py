@@ -13,9 +13,10 @@ import logging
 import sys
 import threading
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from unlock import logger
 from unlock.config import Config
@@ -25,6 +26,7 @@ from unlock.defender import remove_legacy_exclusion
 from unlock.dpi_engine import is_admin
 from unlock.ui import i18n, icons, theme
 from unlock.ui.main_window import MainWindow
+from unlock import vpn_engine
 
 _IPC_KEY = f"{APP_NAME}-single-instance"
 
@@ -76,6 +78,45 @@ def _claim_single_instance(app: QApplication) -> QLocalServer | None:
     raise RuntimeError(
         f"Cannot claim single-instance server {_IPC_KEY!r}: {server.errorString()}"
     )
+
+
+def _warn_about_missing_vpn_components(parent: MainWindow) -> None:
+    """Tell the user when an antivirus or incomplete install removed an engine.
+
+    This deliberately does not alter Defender exclusions.  A missing executable
+    can be caused by quarantine, a partial update, or a manually altered
+    installation, so the user must make the security decision themselves.
+    """
+    missing = [
+        name for name, path in (
+            ("sing-box.exe", vpn_engine.singbox_path()),
+            ("wireproxy.exe", vpn_engine.wireproxy_path()),
+        )
+        if path is None
+    ]
+    if not missing:
+        return
+
+    names = ", ".join(missing)
+    log = logger.get_logger("main")
+    log.warning("Required VPN components are missing: %s", names)
+
+    dialog = QMessageBox(parent)
+    dialog.setIcon(QMessageBox.Icon.Warning)
+    dialog.setWindowTitle(i18n.tr("VPN component missing"))
+    dialog.setText(i18n.tr("%s is missing, so some VPN protocols cannot connect.") % names)
+    dialog.setInformativeText(i18n.tr(
+        "Windows Security may have quarantined the file. Open it to review and "
+        "restore the file only if you trust this Unlock installation; otherwise reinstall Unlock."
+    ))
+    open_security = dialog.addButton(
+        i18n.tr("Open Windows Security"), QMessageBox.ButtonRole.ActionRole
+    )
+    dialog.addButton(QMessageBox.StandardButton.Close)
+    dialog.exec()
+    if dialog.clickedButton() is open_security:
+        if not QDesktopServices.openUrl(QUrl("windowsdefender:")):
+            log.warning("Could not open Windows Security")
 
 
 def main() -> int:
@@ -180,6 +221,9 @@ def main() -> int:
         log.info("Starting minimised to tray")
     else:
         window.show()
+        # Wait until the main window has painted so the warning is not hidden
+        # behind the first frame on slower Windows machines.
+        QTimer.singleShot(250, lambda: _warn_about_missing_vpn_components(window))
 
     def bootstrap() -> None:
         # A tunnel service left behind by a crash still owns the default route,

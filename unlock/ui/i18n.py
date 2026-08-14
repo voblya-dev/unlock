@@ -22,6 +22,16 @@ _current = EN
 
 
 _RU: dict[str, str] = {
+    # --- security / missing components
+    "VPN component missing": "Нет компонента VPN",
+    "%s is missing, so some VPN protocols cannot connect.":
+        "%s отсутствует, поэтому часть VPN-протоколов не сможет подключиться.",
+    "Windows Security may have quarantined the file. Open it to review and "
+    "restore the file only if you trust this Unlock installation; otherwise reinstall Unlock.":
+        "Защита Windows могла поместить файл в карантин. Откройте её, проверьте "
+        "карантин и восстановите файл только если доверяете этой установке Unlock; "
+        "иначе переустановите приложение.",
+    "Open Windows Security": "Открыть «Безопасность Windows»",
     # --- window / tabs
     "Home": "Главная",
     "Settings": "Настройки",

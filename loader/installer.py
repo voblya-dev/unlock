@@ -484,7 +484,12 @@ def install_release(
         _replace_tree(payload_root, options.install_dir)
 
         installed_exe = options.install_dir / manifest.entry_exe
-        icon_path = installed_exe
+        # Keep a dedicated icon file in the shortcut.  Windows otherwise
+        # caches icon index 0 from an older executable at the same path after
+        # an update, leaving the Start menu with the obsolete application mark.
+        icon_path = options.install_dir / "assets" / "unlock-mask.ico"
+        if not icon_path.exists():
+            icon_path = installed_exe
         progress(72, "Creating shortcuts")
         if options.desktop_shortcut:
             _best_effort(

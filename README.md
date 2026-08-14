@@ -4,7 +4,7 @@
   <img src="assets/unlock-readme.png" alt="Unlock">
 </p>
 
-**Unlock 1.0.5** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
+**Unlock 1.0.6** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
 
 > Unlock предназначен только для законного использования. Работа обхода зависит от провайдера, сети и региона; приложение не гарантирует доступность какого-либо отдельного сервиса.
 
@@ -165,18 +165,14 @@ py -m PyInstaller unlock.spec --noconfirm
 
 Результат находится в `dist/Unlock/Unlock.exe`. Сборка намеренно **one-folder**: бинарники не распаковываются в `%TEMP%` при каждом старте, а Windows Defender реже ошибочно блокирует сетевые компоненты.
 
-Одна прозрачная иконка применяется к приложению, трею и установщику. При обновлении её исходника пересоберите `assets/unlock-mask.png` и `assets/unlock-mask.ico`:
-
-```powershell
-py tools/make_icon.py
-```
+Одна прозрачная иконка-маска применяется к приложению, трею, установщику и ярлыкам. Установщик назначает ярлыку отдельный `assets/unlock-mask.ico`, поэтому обновление корректно заменяет старую иконку в меню «Пуск».
 
 ## Выпуск новой версии
 
 Перед созданием тега синхронизируйте версию в `unlock/constants.py`, `loader/config.py` и `loader/__init__.py`, затем проверьте её:
 
 ```powershell
-py -B tools/check_release_version.py --tag v1.0.5
+py -B tools/check_release_version.py --tag v1.0.6
 ```
 
 GitHub Actions по тегу `v*`:
@@ -194,8 +190,8 @@ py -m PyInstaller unlock.spec --noconfirm
 py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
 py -B tools/build_unlock_setup.py `
   --zip dist/Unlock.zip `
-  --version 1.0.5 `
-  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.0.5/Unlock.zip
+  --version 1.0.6 `
+  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.0.6/Unlock.zip
 ```
 
 ## Проверка проекта
@@ -214,7 +210,7 @@ py -B -m compileall -q unlock loader tools
 
 **DPI не включается.** Подтвердите UAC и убедитесь, что рядом с приложением есть `bin/zapret/winws.exe`, `WinDivert64.sys` и `WinDivert.dll`.
 
-**VPN сохранён, но не подключается.** Проверьте соответствующий движок: `sing-box.exe` для VLESS/VMess/Trojan/Shadowsocks/Hysteria2, `wireproxy.exe` для WireGuard proxy-режима, `amneziawg.exe` и `wintun.dll` для TUN.
+**VPN сохранён, но не подключается.** Проверьте соответствующий движок: `sing-box.exe` для VLESS/VMess/Trojan/Shadowsocks/Hysteria2, `wireproxy.exe` для WireGuard proxy-режима, `amneziawg.exe` и `wintun.dll` для TUN. При запуске Unlock сообщит, если `sing-box.exe` или `wireproxy.exe` отсутствует, и позволит открыть «Безопасность Windows» для проверки карантина. Исключения в защиту приложение самостоятельно не добавляет.
 
 **Telegram не принял ссылку.** Повторно предложите прокси на Home. После переключения Fake TLS Telegram получает новую ссылку.
 
