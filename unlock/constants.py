@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 
 # ---------------------------------------------------------------- paths
 
@@ -56,6 +56,7 @@ ZAPRET_USER_HOSTLIST_PATH = ZAPRET_USER_LISTS_DIR / "unlock-hostlist.txt"
 ZAPRET_USER_IPSET_PATH = ZAPRET_USER_LISTS_DIR / "unlock-ipset.txt"
 SITE_LISTS_PATH = DATA_DIR / "sites.json"
 HOSTS_BACKUP_PATH = DATA_DIR / "hosts.unlock.backup"
+AI_HOSTS_CACHE_PATH = DATA_DIR / "ai-hosts.txt"
 
 # VPN engines are bundled with the signed application. Do not search a
 # per-user writable directory from this elevated process.

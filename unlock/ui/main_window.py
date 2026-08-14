@@ -344,18 +344,10 @@ class MainWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        nav_defs = [
-            ("home",   "ГЛАВНАЯ"),
-            ("shield", "VPN"),
-            ("split",  "МАРШРУТЫ"),
-            # Sidebar labels are a fixed Russian, all-caps command vocabulary.
-            # Keep this in line with the neighbouring navigation items instead
-            # of letting the currently selected content language turn it into
-            # the lone English, title-cased entry.
-            ("list",   "СПИСКИ"),
-            ("gear",   "НАСТРОЙКИ"),
-            ("list",   "ЖУРНАЛ"),
-        ]
+        nav_defs = list(zip(
+            ("home", "shield", "split", "list", "gear", "list"),
+            self._nav_labels(),
+        ))
         self._nav_buttons: list[NavButton] = []
         for i, (icon, label) in enumerate(nav_defs):
             btn = NavButton(icon, label)
@@ -368,6 +360,18 @@ class MainWindow(QWidget):
         # Home is selected by default
         self._nav_buttons[0].set_active(True)
         return container
+
+    @staticmethod
+    def _nav_labels() -> list[str]:
+        """Translated sidebar commands, styled consistently in all caps."""
+        return [
+            tr("Home").upper(),
+            tr("VPN").upper(),
+            tr("Routes").upper(),
+            tr("Lists").upper(),
+            tr("Settings").upper(),
+            tr("Logs").upper(),
+        ]
 
     def _set_nav_page(self, index: int) -> None:
         """Switch the content stack and update active nav button."""
@@ -444,7 +448,7 @@ class MainWindow(QWidget):
         self._log_view.setPlainText(history)
         self._pages.setCurrentIndex(current)
         # Re-sync nav button labels after language change
-        nav_labels = ["ГЛАВНАЯ", "VPN", "МАРШРУТЫ", "СПИСКИ", "НАСТРОЙКИ", "ЖУРНАЛ"]
+        nav_labels = self._nav_labels()
         for btn, label in zip(self._nav_buttons, nav_labels):
             btn.setText(label)
         self._load_settings_into_ui()

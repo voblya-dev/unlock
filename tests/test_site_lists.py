@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from unlock.host_overrides import BEGIN, END, render_hosts
+from unlock.ai_hosts import _parse_mapping_lines
+from unlock.host_overrides import AI_BEGIN, AI_END, BEGIN, END, render_ai_hosts, render_hosts
 from unlock.site_lists import (
     AI_SITES,
     HostMapping,
@@ -23,6 +24,9 @@ class SiteRuleParsingTests(unittest.TestCase):
     def test_domains_are_lowercase_and_keep_wildcard(self) -> None:
         self.assertEqual(normalize_domain("  *.ExAmPle.COM. "), "*.example.com")
         self.assertEqual(normalize_domain("BÜCHER.example"), "xn--bcher-kva.example")
+        self.assertEqual(normalize_domain("https://Example.com:443/path?q=1"), "example.com")
+        self.assertEqual(normalize_domain("example.com/path"), "example.com")
+        self.assertEqual(parse_rule("https://Example.com:443/path?q=1").value, "example.com")
         self.assertIsNone(normalize_domain("not a host"))
         self.assertIsNone(normalize_domain("example"))
 
@@ -114,6 +118,38 @@ class ZapretArgumentTests(unittest.TestCase):
         self.assertIn(BEGIN, rendered)
         self.assertIn(END, rendered)
         self.assertEqual(render_hosts(rendered, ()), "127.0.0.1 localhost\n# user line\n")
+
+    def test_ai_hosts_rendering_keeps_user_and_manual_blocks(self) -> None:
+        original = (
+            "127.0.0.1 localhost\n"
+            f"{BEGIN}\n203.0.113.7\texample.com\n{END}\n"
+            "# user line\n"
+        )
+        rendered = render_ai_hosts(original, (HostMapping("chatgpt.com", "45.155.204.190"),))
+        self.assertIn(BEGIN, rendered)
+        self.assertIn("example.com", rendered)
+        self.assertIn(AI_BEGIN, rendered)
+        self.assertIn(AI_END, rendered)
+        self.assertEqual(render_ai_hosts(rendered, ()), original)
+
+
+class AiHostsFeedTests(unittest.TestCase):
+    def test_feed_accepts_only_public_ai_service_mappings(self) -> None:
+        mappings = _parse_mapping_lines(
+            "45.155.204.190 chatgpt.com api.openai.com\n"
+            "45.155.204.190 www.example.com\n"
+            "0.0.0.0 claude.ai\n"
+            "192.168.1.1 gemini.google.com\n"
+            "62.133.62.97 gemini.google.com\n"
+        )
+        self.assertEqual(
+            mappings,
+            (
+                HostMapping("chatgpt.com", "45.155.204.190"),
+                HostMapping("api.openai.com", "45.155.204.190"),
+                HostMapping("gemini.google.com", "62.133.62.97"),
+            ),
+        )
 
 
 if __name__ == "__main__":

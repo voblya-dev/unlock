@@ -39,6 +39,7 @@ _RU: dict[str, str] = {
     "Open Windows Security": "Открыть «Безопасность Windows»",
     # --- window / tabs
     "Home": "Главная",
+    "Routes": "Маршруты",
     "Settings": "Настройки",
     "Logs": "Журнал",
     "VPN": "VPN",
@@ -369,12 +370,25 @@ _RU: dict[str, str] = {
         "Раздельное туннелирование работает только в режиме TUN. "
         "Изменения применяются после переподключения VPN.",
     # --- site / IP lists
-    "Lists": "СПИСКИ",
+    "Lists": "Списки",
     "Sites and IP": "Сайты и IP",
     "Manage addresses that go through the DPI bypass":
         "Управляйте адресами, которые проходят через обход DPI",
     "AI sites": "AI-сайты",
     "Add AI websites through DPI bypass": "Добавить AI-сайты через обход DPI",
+    "AI services": "AI-сервисы",
+    "Enable AI services through DPI bypass and hosts mappings":
+        "Включить AI-сервисы через DPI-обход и hosts-сопоставления",
+    "Update AI services": "Обновить AI-сервисы",
+    "enable": "Включить",
+    "disable": "Выключить",
+    "AI services mode downloads current AI-only mappings from the Zapret-GUI "
+    "sources, sends their domains through DPI bypass, and writes only Unlock's "
+    "separate block in the Windows hosts file. Administrator confirmation may be "
+    "requested. %s it?":
+        "Режим AI-сервисов загружает актуальные сопоставления только для AI из источников "
+        "Zapret-GUI, направляет их домены через DPI-обход и записывает в Windows hosts только "
+        "отдельный блок Unlock. Может потребоваться подтверждение администратора. %s?",
     "Search sites or IPs": "Поиск сайтов или IP",
     "All types": "Все типы",
     "Domain": "Домен",
@@ -407,7 +421,12 @@ _RU: dict[str, str] = {
     "Rule added": "Правило добавлено",
     "List imported: %d rules": "Импортировано правил: %d",
     "AI sites list updated": "Список AI-сайтов обновлён",
+    "AI services list updated": "Список AI-сервисов обновлён",
     "AI sites updated": "AI-сайты обновлены",
+    "AI services updated": "AI-сервисы обновлены",
+    "AI services updated from cache": "AI-сервисы обновлены из локального кэша",
+    "AI services list updated; hosts mapping was unavailable":
+        "Список AI-сервисов обновлён, но сопоставления hosts сейчас недоступны",
     "List saved": "Список сохранён",
     "No valid new rules": "Нет новых корректных правил",
     "Rules already exist": "Такие правила уже есть",
@@ -440,6 +459,8 @@ _RU: dict[str, str] = {
         "отреагировать. Для обычных правил zapret это не нужно. Продолжить?",
     "UAC confirmation requested — hosts change will apply shortly":
         "Запрошено подтверждение UAC — изменение hosts скоро применится",
+    "UAC confirmation requested — AI hosts change will apply shortly":
+        "Запрошено подтверждение UAC — изменение AI-блока hosts скоро применится",
     "DPI restarted — changes applied": "DPI перезапущен, изменения применены",
     "List saved — applies at next bypass start":
         "Список сохранён — применится при следующем запуске обхода",

@@ -1,8 +1,8 @@
 """Opt-in, marker-scoped changes to the Windows hosts file.
 
-This is intentionally separate from ordinary zapret list management.  Hosts
+This is intentionally separate from ordinary zapret list management. Hosts
 overrides change a system file, require explicit elevation, and are only ever
-allowed to touch the block bounded by Unlock's own markers.
+allowed to touch the blocks bounded by Unlock's own markers.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .ai_hosts import load_cached_ai_mappings
 from .constants import HOSTS_BACKUP_PATH
 from .logger import get_logger
 from .site_lists import HostMapping, SiteListManager
@@ -22,6 +23,8 @@ log = get_logger("host_overrides")
 
 BEGIN = "# Unlock hosts BEGIN"
 END = "# Unlock hosts END"
+AI_BEGIN = "# Unlock AI services BEGIN"
+AI_END = "# Unlock AI services END"
 
 
 def hosts_path() -> Path:
@@ -50,6 +53,24 @@ def _without_unlock_block(text: str) -> str:
     return "".join(kept)
 
 
+def _without_marker_block(text: str, begin: str, end: str) -> str:
+    """Drop just the named managed block, retaining every other hosts row."""
+    lines = text.splitlines(keepends=True)
+    kept: list[str] = []
+    in_block = False
+    for line in lines:
+        stripped = line.rstrip("\r\n").strip()
+        if stripped == begin:
+            in_block = True
+            continue
+        if in_block and stripped == end:
+            in_block = False
+            continue
+        if not in_block:
+            kept.append(line)
+    return "".join(kept)
+
+
 def render_hosts(text: str, mappings: tuple[HostMapping, ...]) -> str:
     """Return original content with only our marker block replaced."""
     base = _without_unlock_block(text)
@@ -60,6 +81,22 @@ def render_hosts(text: str, mappings: tuple[HostMapping, ...]) -> str:
         BEGIN,
         *[f"{mapping.address}\t{mapping.domain}" for mapping in mappings],
         END,
+    ]).replace("\n", newline)
+    if base and not base.endswith(("\n", "\r")):
+        base += newline
+    return f"{base}{block}{newline}"
+
+
+def render_ai_hosts(text: str, mappings: tuple[HostMapping, ...]) -> str:
+    """Return hosts content with the AI-service block replaced atomically."""
+    base = _without_marker_block(text, AI_BEGIN, AI_END)
+    if not mappings:
+        return base
+    newline = "\r\n" if "\r\n" in text else "\n"
+    block = "\n".join([
+        AI_BEGIN,
+        *[f"{mapping.address}\t{mapping.domain}" for mapping in mappings],
+        AI_END,
     ]).replace("\n", newline)
     if base and not base.endswith(("\n", "\r")):
         base += newline
@@ -113,6 +150,53 @@ def remove_hosts_block() -> None:
     log.info("Removed Unlock hosts block")
 
 
+def _flush_dns() -> None:
+    try:
+        subprocess.run(
+            ["ipconfig", "/flushdns"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=0x08000000,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        log.warning("Could not flush Windows DNS cache")
+
+
+def apply_ai_hosts(mappings: tuple[HostMapping, ...]) -> None:
+    """Apply validated AI mappings in their own marker block."""
+    if not mappings:
+        raise ValueError("No cached AI host mappings are available")
+    path = hosts_path()
+    if not path.exists():
+        raise FileNotFoundError(f"Windows hosts file was not found: {path}")
+    HOSTS_BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not HOSTS_BACKUP_PATH.exists():
+        shutil.copy2(path, HOSTS_BACKUP_PATH)
+    original, encoding = _read_hosts(path)
+    _write_hosts(path, render_ai_hosts(original, mappings), encoding)
+    _flush_dns()
+    log.info("Updated Unlock AI hosts block (%s mappings)", len(mappings))
+
+
+def remove_ai_hosts_block() -> None:
+    """Remove only Unlock's AI mappings and leave all other hosts rules alone."""
+    path = hosts_path()
+    if not path.exists():
+        raise FileNotFoundError(f"Windows hosts file was not found: {path}")
+    original, encoding = _read_hosts(path)
+    updated = render_ai_hosts(original, ())
+    if updated == original:
+        return
+    HOSTS_BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not HOSTS_BACKUP_PATH.exists():
+        shutil.copy2(path, HOSTS_BACKUP_PATH)
+    _write_hosts(path, updated, encoding)
+    _flush_dns()
+    log.info("Removed Unlock AI hosts block")
+
+
 def request_elevated(action: str) -> tuple[bool, str]:
     """Ask Windows to run the narrow hosts helper with UAC elevation.
 
@@ -120,7 +204,7 @@ def request_elevated(action: str) -> tuple[bool, str]:
     That means the elevated process receives no untrusted domain/IP data on its
     command line and performs only ``apply`` or ``remove``.
     """
-    if action not in {"apply", "remove"}:
+    if action not in {"apply", "remove", "ai-apply", "ai-remove"}:
         return False, "Unsupported hosts action"
     if getattr(sys, "frozen", False):
         target = sys.executable
@@ -145,6 +229,10 @@ def run_helper(action: str) -> int:
             apply_hosts(manager.host_mappings())
         elif action == "remove":
             remove_hosts_block()
+        elif action == "ai-apply":
+            apply_ai_hosts(load_cached_ai_mappings())
+        elif action == "ai-remove":
+            remove_ai_hosts_block()
         else:
             return 2
     except Exception as exc:  # noqa: BLE001 - report in log; the GUI stays alive

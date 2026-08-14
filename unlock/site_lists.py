@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlsplit
 
 from .constants import (
     SITE_LISTS_PATH,
@@ -49,12 +50,40 @@ AI_SITES: tuple[str, ...] = (
     "chatgpt.com",
     "openai.com",
     "auth.openai.com",
+    "platform.openai.com",
+    "api.openai.com",
+    "oaistatic.com",
+    "oaiusercontent.com",
     "claude.ai",
     "anthropic.com",
     "gemini.google.com",
     "aistudio.google.com",
+    "generativelanguage.googleapis.com",
     "copilot.microsoft.com",
     "perplexity.ai",
+    "grok.com",
+    "x.ai",
+    "mistral.ai",
+    "cohere.com",
+    "deepseek.com",
+    "huggingface.co",
+    "poe.com",
+    "you.com",
+    "character.ai",
+    "meta.ai",
+    "elevenlabs.io",
+    "midjourney.com",
+    "runwayml.com",
+    "stability.ai",
+    "leonardo.ai",
+    "groq.com",
+    "together.ai",
+    "qwen.ai",
+    "kimi.com",
+    "manus.im",
+    "cursor.com",
+    "windsurf.com",
+    "trae.ai",
 )
 
 
@@ -99,8 +128,26 @@ class MutationResult:
 
 
 def normalize_domain(value: str) -> str | None:
-    """Return a canonical ASCII host mask, or ``None`` when it is invalid."""
-    value = value.strip().lower().rstrip(".")
+    """Return a canonical ASCII host mask, or ``None`` when it is invalid.
+
+    The list editor accepts a full web address too. People normally copy the
+    address-bar value, whereas winws needs only its hostname.
+    """
+    value = value.strip().lower()
+    if "://" in value:
+        try:
+            value = urlsplit(value).hostname or ""
+        except ValueError:
+            return None
+    else:
+        value = value.split("/", 1)[0].split("?", 1)[0]
+        # Strip the common ``host:443`` spelling but leave IPv6 alone: the
+        # caller classifies a genuine IPv6 value before it reaches this path.
+        if value.count(":") == 1:
+            host, port = value.rsplit(":", 1)
+            if port.isdigit():
+                value = host
+    value = value.rstrip(".")
     wildcard = value.startswith("*.")
     bare = value[2:] if wildcard else value
     if not bare or "/" in bare or any(ch.isspace() for ch in bare):
@@ -119,7 +166,9 @@ def parse_rule(value: str) -> SiteRule | None:
     value = value.strip()
     if not value:
         return None
-    if "/" in value:
+    # A slash normally denotes CIDR, except in a copied web address such as
+    # ``https://example.com/path`` which is normalized below as a hostname.
+    if "/" in value and "://" not in value:
         try:
             network = ipaddress.ip_network(value, strict=False)
         except ValueError:
@@ -295,14 +344,16 @@ class SiteListManager:
     def set_all_enabled(self, enabled: bool) -> MutationResult:
         return self.set_enabled((rule.value for rule in self._rules), enabled)
 
-    def set_ai_sites_enabled(self, enabled: bool) -> MutationResult:
+    def set_ai_sites_enabled(
+        self, enabled: bool, values: Iterable[str] = AI_SITES,
+    ) -> MutationResult:
         """Enable the built-in AI collection or remove only its own records."""
         mode_changed = self._ai_sites_enabled != enabled
         self._ai_sites_enabled = enabled
         if not enabled:
             result = self.remove_ai_sites()
         else:
-            result = self.add_values(AI_SITES, source=SiteRuleSource.AI)
+            result = self.add_values(values, source=SiteRuleSource.AI)
         if mode_changed and not result.touched:
             self.save()
             result = MutationResult(changed=1)
