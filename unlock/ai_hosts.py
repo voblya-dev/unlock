@@ -1,14 +1,14 @@
-"""Validated AI-service host mappings used by the one-click AI mode.
+"""The complete hosts bundle used by Zapret-GUI 2.1.1 AI mode.
 
-Zapret-GUI keeps the current mappings in a remote ``hosts`` file. That file
-also contains unrelated websites and ad-block entries, so Unlock downloads only
-the AI-related entries and accepts them only for an explicit set of AI service
-domains. The filtered result is cached locally for a temporary source outage.
+The upstream feature does not use a small hand-maintained AI allowlist.  It
+downloads the full dns.malw.link hosts file, appends the Goida-AI-Unlocker
+supplement, removes entries that could prevent future GitHub updates, and
+caches the validated result.  Unlock deliberately mirrors that behaviour so
+the one-click mode has the same coverage as the known-working implementation.
 """
 
 from __future__ import annotations
 
-import ipaddress
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,17 +16,22 @@ from pathlib import Path
 import requests
 
 from .constants import AI_HOSTS_CACHE_PATH
-from .site_lists import HostMapping, normalize_domain
+from .site_lists import normalize_domain
 
 
 AI_HOSTS_URL = "https://raw.githubusercontent.com/ImMALWARE/dns.malw.link/master/hosts"
 AI_HOSTS_ADDITIONAL_URL = (
     "https://raw.githubusercontent.com/AvenCores/Goida-AI-Unlocker/main/additional_hosts.py"
 )
+AI_PROTECTED_HOSTS = frozenset({
+    "api.github.com",
+    "github.com",
+    "www.github.com",
+    "raw.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "codeload.github.com",
+})
 
-# Services whose complete domain trees are AI-specific. Broad domains such as
-# google.com and microsoft.com are handled below with exact hosts so an AI
-# button cannot accidentally redirect normal Google or Microsoft services.
 AI_DOMAIN_SUFFIXES: tuple[str, ...] = (
     "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com",
     "anthropic.com", "claude.ai", "perplexity.ai", "grok.com", "x.ai",
@@ -38,7 +43,6 @@ AI_DOMAIN_SUFFIXES: tuple[str, ...] = (
     "lovable.dev", "v0.dev", "bolt.new", "cursor.com", "codeium.com",
     "windsurf.com", "trae.ai", "githubcopilot.com",
 )
-
 AI_EXACT_DOMAINS: frozenset[str] = frozenset({
     "gemini.google.com", "aistudio.google.com", "notebooklm.google.com",
     "jules.google.com", "generativelanguage.googleapis.com",
@@ -49,23 +53,25 @@ AI_EXACT_DOMAINS: frozenset[str] = frozenset({
     "edgeservices.bing.com",
 })
 
+_ADDITIONAL_VERSION_RE = re.compile(r'version_add\s*=\s*["\']([^"\']+)["\']')
 _ADDITIONAL_HOSTS_RE = re.compile(
     r"hosts_add\s*=\s*(?:r|R)?(?P<quote>\"\"\"|''')(?P<body>.*?)(?P=quote)", re.S,
 )
 
 
 class AiHostsError(RuntimeError):
-    """No usable AI mapping source or cache was available."""
+    """No usable AI hosts source or cache was available."""
 
 
 @dataclass(frozen=True)
 class AiHostsBundle:
-    mappings: tuple[HostMapping, ...]
+    hosts_text: str
+    ai_domains: tuple[str, ...]
     source: str  # network or cache
+    additional_version: str = ""
 
 
 def is_ai_domain(domain: str) -> bool:
-    """Whether a normalized hostname is intentionally covered by AI mode."""
     domain = domain.lower().rstrip(".")
     return domain in AI_EXACT_DOMAINS or any(
         domain == suffix or domain.endswith(f".{suffix}")
@@ -73,76 +79,108 @@ def is_ai_domain(domain: str) -> bool:
     )
 
 
-def _parse_mapping_lines(text: str) -> tuple[HostMapping, ...]:
-    """Read valid public ``IP hostname`` rows, retaining AI hosts only."""
-    mappings: list[HostMapping] = []
-    seen: set[str] = set()
-    for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").splitlines():
-        fields = raw_line.split("#", 1)[0].split()
-        if len(fields) < 2:
-            continue
-        try:
-            address = ipaddress.ip_address(fields[0])
-        except ValueError:
-            continue
-        # Never accept local, unspecified, multicast or documentation ranges
-        # from a remote feed.
-        if not address.is_global:
-            continue
-        for candidate in fields[1:]:
-            domain = normalize_domain(candidate)
-            if domain is None or domain.startswith("*.") or not is_ai_domain(domain):
-                continue
-            if domain not in seen:
-                mappings.append(HostMapping(domain, str(address)))
-                seen.add(domain)
-    return tuple(mappings)
+def _line_hostnames(line: str) -> tuple[str, ...]:
+    fields = line.split("#", 1)[0].split()
+    if len(fields) < 2:
+        return ()
+    domains = []
+    for candidate in fields[1:]:
+        domain = normalize_domain(candidate)
+        if domain and not domain.startswith("*."):
+            domains.append(domain)
+    return tuple(domains)
 
 
-def _render_cache(mappings: tuple[HostMapping, ...]) -> str:
-    return "\n".join(f"{item.address}\t{item.domain}" for item in mappings) + (
-        "\n" if mappings else ""
+def _filter_hosts_bundle(text: str) -> str:
+    """Keep the upstream bundle intact except update-critical GitHub rows."""
+    kept = []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").splitlines():
+        if any(host in AI_PROTECTED_HOSTS for host in _line_hostnames(line)):
+            continue
+        kept.append(line.rstrip())
+    result = "\n".join(kept).strip()
+    return result + ("\n" if result else "")
+
+
+def _bundle_looks_useful(text: str) -> bool:
+    rows = [
+        line for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    haystack = text.casefold()
+    return len(rows) >= 3 and any(
+        token in haystack for token in ("openai", "chatgpt", "claude", "gemini", "anthropic")
     )
 
 
-def load_cached_ai_mappings(path: Path = AI_HOSTS_CACHE_PATH) -> tuple[HostMapping, ...]:
+def _ai_domains_from_bundle(text: str) -> tuple[str, ...]:
+    domains: list[str] = []
+    seen: set[str] = set()
+    for line in text.splitlines():
+        for domain in _line_hostnames(line):
+            if is_ai_domain(domain) and domain not in seen:
+                seen.add(domain)
+                domains.append(domain)
+    return tuple(domains)
+
+
+def load_cached_ai_hosts(path: Path = AI_HOSTS_CACHE_PATH) -> str:
     try:
-        return _parse_mapping_lines(path.read_text(encoding="utf-8"))
+        text = _filter_hosts_bundle(path.read_text(encoding="utf-8"))
     except OSError:
-        return ()
+        return ""
+    return text if _bundle_looks_useful(text) else ""
 
 
 def _download_text(url: str, timeout: float) -> str:
     response = requests.get(
-        url, headers={"User-Agent": "Unlock-AI-Hosts/1.0"}, timeout=timeout,
+        url, headers={"User-Agent": "ZapretGUI-AiDNS"}, timeout=timeout,
     )
     response.raise_for_status()
     return response.text
 
 
+def _write_cache(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(text, encoding="utf-8", newline="\n")
+    temporary.replace(path)
+
+
 def refresh_ai_mappings(
-    *, cache_path: Path = AI_HOSTS_CACHE_PATH, timeout: float = 20.0,
+    *, cache_path: Path = AI_HOSTS_CACHE_PATH, timeout: float = 25.0,
 ) -> AiHostsBundle:
-    """Fetch, validate and cache the AI-only subset of Zapret-GUI's feed."""
+    """Download and cache the same complete bundle as Zapret-GUI 2.1.1."""
     try:
-        text = _download_text(AI_HOSTS_URL, timeout)
+        main_hosts = _download_text(AI_HOSTS_URL, timeout).strip()
+        additional_hosts = ""
+        additional_version = ""
         try:
-            additional = _download_text(AI_HOSTS_ADDITIONAL_URL, timeout)
-            match = _ADDITIONAL_HOSTS_RE.search(additional)
-            if match:
-                text += "\n" + match.group("body")
+            additional = _download_text(AI_HOSTS_ADDITIONAL_URL, min(timeout, 20.0))
+            version_match = _ADDITIONAL_VERSION_RE.search(additional)
+            hosts_match = _ADDITIONAL_HOSTS_RE.search(additional)
+            if version_match:
+                additional_version = version_match.group(1).strip()
+            if hosts_match:
+                additional_hosts = hosts_match.group("body").strip()
         except requests.RequestException:
             pass
-        mappings = _parse_mapping_lines(text)
-        if len(mappings) < 3:
-            raise AiHostsError("AI host feed contained too few valid mappings")
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = cache_path.with_suffix(cache_path.suffix + ".tmp")
-        temporary.write_text(_render_cache(mappings), encoding="utf-8", newline="\n")
-        temporary.replace(cache_path)
-        return AiHostsBundle(mappings, "network")
+
+        pieces = [main_hosts]
+        if additional_hosts:
+            header = "# Goida-AI-Unlocker additional hosts"
+            if additional_version:
+                header += f" ({additional_version})"
+            pieces.extend((header, additional_hosts))
+        hosts_text = _filter_hosts_bundle("\n\n".join(p for p in pieces if p))
+        if not _bundle_looks_useful(hosts_text):
+            raise AiHostsError("downloaded hosts bundle failed validation")
+        _write_cache(cache_path, hosts_text)
+        return AiHostsBundle(
+            hosts_text, _ai_domains_from_bundle(hosts_text), "network", additional_version,
+        )
     except (OSError, requests.RequestException, AiHostsError) as exc:
-        cached = load_cached_ai_mappings(cache_path)
+        cached = load_cached_ai_hosts(cache_path)
         if cached:
-            return AiHostsBundle(cached, "cache")
-        raise AiHostsError(f"Could not obtain AI host mappings: {exc}") from exc
+            return AiHostsBundle(cached, _ai_domains_from_bundle(cached), "cache", "cached")
+        raise AiHostsError(f"Could not obtain AI hosts bundle: {exc}") from exc

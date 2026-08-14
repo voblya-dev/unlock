@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .ai_hosts import load_cached_ai_mappings
+from .ai_hosts import load_cached_ai_hosts
 from .constants import HOSTS_BACKUP_PATH
 from .logger import get_logger
 from .site_lists import HostMapping, SiteListManager
@@ -87,17 +87,14 @@ def render_hosts(text: str, mappings: tuple[HostMapping, ...]) -> str:
     return f"{base}{block}{newline}"
 
 
-def render_ai_hosts(text: str, mappings: tuple[HostMapping, ...]) -> str:
+def render_ai_hosts(text: str, hosts_text: str) -> str:
     """Return hosts content with the AI-service block replaced atomically."""
     base = _without_marker_block(text, AI_BEGIN, AI_END)
-    if not mappings:
+    if not hosts_text.strip():
         return base
     newline = "\r\n" if "\r\n" in text else "\n"
-    block = "\n".join([
-        AI_BEGIN,
-        *[f"{mapping.address}\t{mapping.domain}" for mapping in mappings],
-        AI_END,
-    ]).replace("\n", newline)
+    body = hosts_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    block = f"{AI_BEGIN}\n{body}\n{AI_END}".replace("\n", newline)
     if base and not base.endswith(("\n", "\r")):
         base += newline
     return f"{base}{block}{newline}"
@@ -163,11 +160,23 @@ def _flush_dns() -> None:
     except (OSError, subprocess.SubprocessError):
         log.warning("Could not flush Windows DNS cache")
 
+    try:
+        subprocess.run(
+            ["ipconfig", "/registerdns"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=0x08000000,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        log.warning("Could not register Windows DNS records")
 
-def apply_ai_hosts(mappings: tuple[HostMapping, ...]) -> None:
-    """Apply validated AI mappings in their own marker block."""
-    if not mappings:
-        raise ValueError("No cached AI host mappings are available")
+
+def apply_ai_hosts(hosts_text: str) -> None:
+    """Apply the validated Zapret-GUI AI bundle in its own marker block."""
+    if not hosts_text.strip():
+        raise ValueError("No cached AI hosts bundle is available")
     path = hosts_path()
     if not path.exists():
         raise FileNotFoundError(f"Windows hosts file was not found: {path}")
@@ -175,9 +184,13 @@ def apply_ai_hosts(mappings: tuple[HostMapping, ...]) -> None:
     if not HOSTS_BACKUP_PATH.exists():
         shutil.copy2(path, HOSTS_BACKUP_PATH)
     original, encoding = _read_hosts(path)
-    _write_hosts(path, render_ai_hosts(original, mappings), encoding)
+    _write_hosts(path, render_ai_hosts(original, hosts_text), encoding)
     _flush_dns()
-    log.info("Updated Unlock AI hosts block (%s mappings)", len(mappings))
+    rows = sum(
+        1 for line in hosts_text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    log.info("Updated Unlock AI hosts block (%s rows)", rows)
 
 
 def remove_ai_hosts_block() -> None:
@@ -186,7 +199,7 @@ def remove_ai_hosts_block() -> None:
     if not path.exists():
         raise FileNotFoundError(f"Windows hosts file was not found: {path}")
     original, encoding = _read_hosts(path)
-    updated = render_ai_hosts(original, ())
+    updated = render_ai_hosts(original, "")
     if updated == original:
         return
     HOSTS_BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -230,7 +243,7 @@ def run_helper(action: str) -> int:
         elif action == "remove":
             remove_hosts_block()
         elif action == "ai-apply":
-            apply_ai_hosts(load_cached_ai_mappings())
+            apply_ai_hosts(load_cached_ai_hosts())
         elif action == "ai-remove":
             remove_ai_hosts_block()
         else:

@@ -78,10 +78,10 @@ class SiteListsWorker(QThread):
             elif self._action == "ai_on":
                 try:
                     bundle = refresh_ai_mappings()
-                    values = (*AI_SITES, *(mapping.domain for mapping in bundle.mappings))
+                    values = (*AI_SITES, *bundle.ai_domains)
                     result = self._manager.set_ai_sites_enabled(True, values)
                     try:
-                        apply_ai_hosts(bundle.mappings)
+                        apply_ai_hosts(bundle.hosts_text)
                     except OSError:
                         # A source run may not have the normal WinDivert UAC
                         # elevation. The UI then requests its narrow helper.
@@ -104,10 +104,12 @@ class SiteListsWorker(QThread):
                 else:
                     try:
                         bundle = refresh_ai_mappings()
-                        values = (*AI_SITES, *(mapping.domain for mapping in bundle.mappings))
+                        values = (*AI_SITES, *bundle.ai_domains)
                         result = self._manager.refresh_ai_sites(values)
+                        if not result.touched:
+                            result = MutationResult(changed=1)
                         try:
-                            apply_ai_hosts(bundle.mappings)
+                            apply_ai_hosts(bundle.hosts_text)
                         except OSError:
                             result = (result, True, bundle.source, "")
                         else:
@@ -590,10 +592,10 @@ class SitesTab(SeascapePage):
             self,
             tr("AI services"),
             tr(
-                "AI services mode downloads current AI-only mappings from the Zapret-GUI "
-                "sources, sends their domains through DPI bypass, and writes only Unlock's "
-                "separate block in the Windows hosts file. Administrator confirmation may be "
-                "requested. %s it?"
+                "AI services mode uses the complete hosts bundle from Zapret-GUI 2.1.1, "
+                "including its non-AI and ad-block entries, and sends AI domains through DPI "
+                "bypass. Unlock writes it only inside its separate Windows hosts block. "
+                "Administrator confirmation may be requested. %s it?"
             ) % action,
             QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok,
             QMessageBox.StandardButton.Cancel,

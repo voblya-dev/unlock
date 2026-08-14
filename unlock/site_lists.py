@@ -20,7 +20,11 @@ from typing import Iterable
 from urllib.parse import urlsplit
 
 from .constants import (
+    LISTS_DIR,
     SITE_LISTS_PATH,
+    ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH,
+    ZAPRET_RUNTIME_HOSTLIST_PATH,
+    ZAPRET_RUNTIME_IPSET_PATH,
     ZAPRET_USER_HOSTLIST_PATH,
     ZAPRET_USER_IPSET_PATH,
 )
@@ -210,10 +214,32 @@ class SiteListManager:
         path: Path = SITE_LISTS_PATH,
         hostlist_path: Path = ZAPRET_USER_HOSTLIST_PATH,
         ipset_path: Path = ZAPRET_USER_IPSET_PATH,
+        runtime_hostlist_path: Path | None = None,
+        runtime_ipset_path: Path | None = None,
+        runtime_empty_hostlist_path: Path | None = None,
+        base_hostlist_path: Path = LISTS_DIR / "list-general.txt",
+        base_ipset_path: Path = LISTS_DIR / "ipset-all.txt",
     ) -> None:
         self.path = path
         self.hostlist_path = hostlist_path
         self.ipset_path = ipset_path
+        self.runtime_hostlist_path = (
+            runtime_hostlist_path
+            if runtime_hostlist_path is not None
+            else hostlist_path.parent / ZAPRET_RUNTIME_HOSTLIST_PATH.name
+        )
+        self.runtime_ipset_path = (
+            runtime_ipset_path
+            if runtime_ipset_path is not None
+            else ipset_path.parent / ZAPRET_RUNTIME_IPSET_PATH.name
+        )
+        self.runtime_empty_hostlist_path = (
+            runtime_empty_hostlist_path
+            if runtime_empty_hostlist_path is not None
+            else hostlist_path.parent / ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH.name
+        )
+        self.base_hostlist_path = base_hostlist_path
+        self.base_ipset_path = base_ipset_path
         self._rules: list[SiteRule] = []
         self._host_mappings: list[HostMapping] = []
         self._hosts_enabled = False
@@ -390,10 +416,12 @@ class SiteListManager:
     # ------------------------------------------------------------- zapret
 
     def zapret_lists(self) -> tuple[list[str], list[str]]:
-        domains = sorted(
-            rule.value for rule in self._rules
+        # winws hostlists already match subdomains of a listed domain. Its file
+        # grammar expects the bare domain, not a shell-style ``*.`` prefix.
+        domains = sorted({
+            rule.value.removeprefix("*.") for rule in self._rules
             if rule.enabled and rule.type is SiteRuleType.DOMAIN
-        )
+        })
         addresses = sorted(
             rule.value for rule in self._rules
             if rule.enabled and rule.type in (SiteRuleType.IP, SiteRuleType.SUBNET)
@@ -404,6 +432,39 @@ class SiteListManager:
         domains, addresses = self.zapret_lists()
         _atomic_write(self.hostlist_path, "\n".join(domains) + ("\n" if domains else ""))
         _atomic_write(self.ipset_path, "\n".join(addresses) + ("\n" if addresses else ""))
+        _atomic_write(
+            self.runtime_hostlist_path,
+            self._merge_base(self.base_hostlist_path, domains),
+        )
+        _atomic_write(
+            self.runtime_ipset_path,
+            self._merge_base(self.base_ipset_path, addresses),
+        )
+        # Current general configs still mention list-general-user.txt. The
+        # actual user rules are already merged above, like Zapret-GUI's runtime
+        # rebuild, so this companion file is intentionally empty.
+        _atomic_write(self.runtime_empty_hostlist_path, "")
+
+    @staticmethod
+    def _merge_base(base_path: Path, additions: Iterable[str]) -> str:
+        try:
+            base_lines = base_path.read_text(
+                encoding="utf-8-sig", errors="replace",
+            ).splitlines()
+        except OSError:
+            base_lines = []
+        merged: list[str] = []
+        seen: set[str] = set()
+        for raw in (*base_lines, *additions):
+            value = raw.strip()
+            if not value:
+                continue
+            key = value.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(value)
+        return "\n".join(merged) + ("\n" if merged else "")
 
     # ------------------------------------------------------------- hosts
 

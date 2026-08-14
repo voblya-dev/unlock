@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from unlock.ai_hosts import _parse_mapping_lines
+from unlock.ai_hosts import (
+    AI_PROTECTED_HOSTS,
+    _ai_domains_from_bundle,
+    _bundle_looks_useful,
+    _filter_hosts_bundle,
+)
 from unlock.host_overrides import AI_BEGIN, AI_END, BEGIN, END, render_ai_hosts, render_hosts
 from unlock.site_lists import (
     AI_SITES,
@@ -76,6 +81,29 @@ class SiteListStorageTests(unittest.TestCase):
         self.assertEqual(self.hostlist.read_text(encoding="utf-8"), "")
         self.assertEqual(self.ipset.read_text(encoding="utf-8"), "1.2.3.4\n")
 
+    def test_wildcards_are_written_as_winws_domains_and_merged_with_base(self) -> None:
+        base_hosts = Path(self.temp.name) / "base-hosts.txt"
+        base_ips = Path(self.temp.name) / "base-ips.txt"
+        base_hosts.write_text("bundled.example\n", encoding="utf-8")
+        base_ips.write_text("10.0.0.0/8\n", encoding="utf-8")
+        manager = SiteListManager(
+            self.store,
+            self.hostlist,
+            self.ipset,
+            base_hostlist_path=base_hosts,
+            base_ipset_path=base_ips,
+        )
+        manager.add_text("instagram.com\n*.instagram.com\n203.0.113.0/24")
+        self.assertEqual(self.hostlist.read_text(encoding="utf-8"), "instagram.com\n")
+        self.assertEqual(
+            (self.hostlist.parent / "list-general.txt").read_text(encoding="utf-8"),
+            "bundled.example\ninstagram.com\n",
+        )
+        self.assertEqual(
+            (self.ipset.parent / "ipset-all.txt").read_text(encoding="utf-8"),
+            "10.0.0.0/8\n203.0.113.0/24\n",
+        )
+
     def test_ai_collection_only_removes_its_own_source(self) -> None:
         self.manager.add_text("chatgpt.com")
         enabled = self.manager.set_ai_sites_enabled(True)
@@ -97,18 +125,22 @@ class SiteListStorageTests(unittest.TestCase):
 
 
 class ZapretArgumentTests(unittest.TestCase):
-    def test_user_lists_are_added_next_to_preset_lists(self) -> None:
+    def test_general_lists_are_replaced_by_merged_runtime_files(self) -> None:
         args = expand_args([
             "--hostlist=%LISTS%list-general.txt",
+            "--hostlist=%LISTS%list-general-user.txt",
+            "--new",
+            "--hostlist=%LISTS%list-google.txt",
             "--ipset=%LISTS%ipset-all.txt",
             "--hostlist-exclude=%LISTS%list-exclude.txt",
             "--ipset-exclude=%LISTS%ipset-exclude.txt",
         ])
-        user_hosts = [arg for arg in args if "unlock-hostlist.txt" in arg]
-        user_ips = [arg for arg in args if "unlock-ipset.txt" in arg]
-        self.assertEqual(len(user_hosts), 1)
-        self.assertEqual(len(user_ips), 1)
-        self.assertEqual(len(args), 6)
+        self.assertEqual(len(args), 7)
+        self.assertTrue(args[0].endswith("zapret-lists\\list-general.txt"))
+        self.assertTrue(args[1].endswith("zapret-lists\\list-general-user.txt"))
+        self.assertIn("bin\\zapret\\lists\\list-google.txt", args[3])
+        self.assertTrue(args[4].endswith("zapret-lists\\ipset-all.txt"))
+        self.assertFalse(any("unlock-hostlist.txt" in arg for arg in args))
 
     def test_hosts_rendering_changes_only_unlock_markers(self) -> None:
         original = "127.0.0.1 localhost\n# user line\n"
@@ -125,31 +157,33 @@ class ZapretArgumentTests(unittest.TestCase):
             f"{BEGIN}\n203.0.113.7\texample.com\n{END}\n"
             "# user line\n"
         )
-        rendered = render_ai_hosts(original, (HostMapping("chatgpt.com", "45.155.204.190"),))
+        rendered = render_ai_hosts(original, "45.155.204.190\tchatgpt.com\n0.0.0.0\tads.example\n")
         self.assertIn(BEGIN, rendered)
         self.assertIn("example.com", rendered)
         self.assertIn(AI_BEGIN, rendered)
         self.assertIn(AI_END, rendered)
-        self.assertEqual(render_ai_hosts(rendered, ()), original)
+        self.assertEqual(render_ai_hosts(rendered, ""), original)
 
 
 class AiHostsFeedTests(unittest.TestCase):
-    def test_feed_accepts_only_public_ai_service_mappings(self) -> None:
-        mappings = _parse_mapping_lines(
+    def test_feed_keeps_full_bundle_but_protects_github_updates(self) -> None:
+        source = (
             "45.155.204.190 chatgpt.com api.openai.com\n"
             "45.155.204.190 www.example.com\n"
             "0.0.0.0 claude.ai\n"
-            "192.168.1.1 gemini.google.com\n"
+            "127.0.0.1 github.com\n"
             "62.133.62.97 gemini.google.com\n"
         )
+        filtered = _filter_hosts_bundle(source)
+        self.assertNotIn("github.com", filtered)
+        self.assertIn("www.example.com", filtered)
+        self.assertIn("0.0.0.0 claude.ai", filtered)
+        self.assertTrue(_bundle_looks_useful(filtered))
         self.assertEqual(
-            mappings,
-            (
-                HostMapping("chatgpt.com", "45.155.204.190"),
-                HostMapping("api.openai.com", "45.155.204.190"),
-                HostMapping("gemini.google.com", "62.133.62.97"),
-            ),
+            _ai_domains_from_bundle(filtered),
+            ("chatgpt.com", "api.openai.com", "claude.ai", "gemini.google.com"),
         )
+        self.assertIn("raw.githubusercontent.com", AI_PROTECTED_HOSTS)
 
 
 if __name__ == "__main__":

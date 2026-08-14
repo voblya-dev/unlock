@@ -813,15 +813,19 @@ class Controller(QObject):
                         method()
                     except Exception:
                         log.exception("Could not stop worker during shutdown")
-            worker.requestInterruption()
+            interrupt = getattr(worker, "requestInterruption", None)
+            if callable(interrupt):
+                interrupt()
         self._latency_worker = self._vpn_ping_worker = self._tg_watcher = None
         self._benchmark_worker = self._aborted_benchmark = self._evolution_worker = None
         self._stop_vpn()
         self._stop_engines()
         for worker in workers:
-            if worker.isRunning() and not worker.wait(5000):
+            is_running = getattr(worker, "isRunning", None)
+            wait = getattr(worker, "wait", None)
+            if callable(is_running) and callable(wait) and is_running() and not wait(5000):
                 log.warning("Worker did not stop within 5 seconds; waiting safely")
-                worker.wait()
+                wait()
         self._workers.clear()
 
     # ------------------------------------------------------------- engine glue

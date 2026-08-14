@@ -382,13 +382,14 @@ _RU: dict[str, str] = {
     "Update AI services": "Обновить AI-сервисы",
     "enable": "Включить",
     "disable": "Выключить",
-    "AI services mode downloads current AI-only mappings from the Zapret-GUI "
-    "sources, sends their domains through DPI bypass, and writes only Unlock's "
-    "separate block in the Windows hosts file. Administrator confirmation may be "
-    "requested. %s it?":
-        "Режим AI-сервисов загружает актуальные сопоставления только для AI из источников "
-        "Zapret-GUI, направляет их домены через DPI-обход и записывает в Windows hosts только "
-        "отдельный блок Unlock. Может потребоваться подтверждение администратора. %s?",
+    "AI services mode uses the complete hosts bundle from Zapret-GUI 2.1.1, "
+    "including its non-AI and ad-block entries, and sends AI domains through DPI "
+    "bypass. Unlock writes it only inside its separate Windows hosts block. "
+    "Administrator confirmation may be requested. %s it?":
+        "Режим AI-сервисов использует полный пакет hosts из Zapret-GUI 2.1.1, включая "
+        "не-AI записи и блокировку рекламы, а домены AI направляет через DPI-обход. Unlock "
+        "записывает пакет только в свой отдельный блок Windows hosts. Может потребоваться "
+        "подтверждение администратора. %s?",
     "Search sites or IPs": "Поиск сайтов или IP",
     "All types": "Все типы",
     "Domain": "Домен",

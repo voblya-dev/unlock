@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 
 # ---------------------------------------------------------------- paths
 
@@ -48,12 +48,16 @@ WINWS_EXE = ZAPRET_DIR / "winws.exe"
 LISTS_DIR = ZAPRET_DIR / "lists"
 CONFIGS_DIR = ZAPRET_DIR / "configs"
 
-# Per-user zapret extensions.  ``bin/zapret`` is a bundled, potentially
-# read-only PyInstaller resource, so user-managed lists must never be stored
-# there.  These files are appended to the parsed preset arguments at runtime.
+# Per-user zapret extensions. ``bin/zapret`` is a bundled, potentially
+# read-only PyInstaller resource, so generated runtime lists live in AppData.
+# Zapret-GUI rebuilds list-general/ipset-all from the bundled base plus the
+# user's rules before launch; Unlock mirrors that without mutating its bundle.
 ZAPRET_USER_LISTS_DIR = DATA_DIR / "zapret-lists"
 ZAPRET_USER_HOSTLIST_PATH = ZAPRET_USER_LISTS_DIR / "unlock-hostlist.txt"
 ZAPRET_USER_IPSET_PATH = ZAPRET_USER_LISTS_DIR / "unlock-ipset.txt"
+ZAPRET_RUNTIME_HOSTLIST_PATH = ZAPRET_USER_LISTS_DIR / "list-general.txt"
+ZAPRET_RUNTIME_IPSET_PATH = ZAPRET_USER_LISTS_DIR / "ipset-all.txt"
+ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH = ZAPRET_USER_LISTS_DIR / "list-general-user.txt"
 SITE_LISTS_PATH = DATA_DIR / "sites.json"
 HOSTS_BACKUP_PATH = DATA_DIR / "hosts.unlock.backup"
 AI_HOSTS_CACHE_PATH = DATA_DIR / "ai-hosts.txt"
