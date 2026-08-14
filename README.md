@@ -1,7 +1,7 @@
 # Unlock
 
 <p align="center">
-  <img src="assets/unlock-readme.png" alt="Unlock" width="180">
+  <img src="assets/unlock-readme.png" alt="Unlock">
 </p>
 
 **Unlock 1.0.2** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
