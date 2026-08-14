@@ -496,10 +496,12 @@ class InstallerWindow(QMainWindow):
         self.remove_btn = QPushButton("Remove")
         self.remove_btn.setObjectName("dangerButton")
         self.remove_btn.clicked.connect(self._start_remove)
-        buttons_layout.addStretch(1)
-        buttons_layout.addWidget(self.remove_btn)
-        buttons_layout.addWidget(self.secondary_btn)
-        buttons_layout.addWidget(self.primary_btn)
+        # All actions share the available row width.  A fixed minimum width
+        # would make the right panel overflow on compact displays.
+        for button in (self.remove_btn, self.secondary_btn, self.primary_btn):
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            button.setMinimumWidth(0)
+            buttons_layout.addWidget(button, 1)
         layout.addWidget(buttons)
 
         return panel
@@ -655,7 +657,7 @@ class InstallerWindow(QMainWindow):
                 background: #f5f5f2;
                 color: #0a0a0a;
                 border: 1px solid #f5f5f2;
-                padding: 0 18px;
+                padding: 0 10px;
                 font-weight: 800;
             }
             #primaryButton:hover {
@@ -663,8 +665,8 @@ class InstallerWindow(QMainWindow):
                 border-color: #ffffff;
             }
             #buttonRow QPushButton {
-                min-width: 156px;
-                max-width: 156px;
+                min-width: 0;
+                padding: 0 10px;
             }
             #optionRow {
                 background: #111111;

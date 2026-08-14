@@ -4,7 +4,7 @@
   <img src="assets/unlock-readme.png" alt="Unlock">
 </p>
 
-**Unlock 1.0.4** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
+**Unlock 1.0.5** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
 
 > Unlock предназначен только для законного использования. Работа обхода зависит от провайдера, сети и региона; приложение не гарантирует доступность какого-либо отдельного сервиса.
 
@@ -176,7 +176,7 @@ py tools/make_icon.py
 Перед созданием тега синхронизируйте версию в `unlock/constants.py`, `loader/config.py` и `loader/__init__.py`, затем проверьте её:
 
 ```powershell
-py -B tools/check_release_version.py --tag v1.0.4
+py -B tools/check_release_version.py --tag v1.0.5
 ```
 
 GitHub Actions по тегу `v*`:
@@ -194,8 +194,8 @@ py -m PyInstaller unlock.spec --noconfirm
 py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
 py -B tools/build_unlock_setup.py `
   --zip dist/Unlock.zip `
-  --version 1.0.4 `
-  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.0.4/Unlock.zip
+  --version 1.0.5 `
+  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.0.5/Unlock.zip
 ```
 
 ## Проверка проекта
