@@ -69,19 +69,45 @@ jobs:
         shell: pwsh
         run: py -m PyInstaller unlock.spec --noconfirm
 
+      - name: Select signing mode
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          CODE_SIGNING_PUBLISHER: ${{ vars.CODE_SIGNING_PUBLISHER }}
+        run: |
+          $required = @(
+            $env:AZURE_CLIENT_ID, $env:AZURE_TENANT_ID, $env:AZURE_SUBSCRIPTION_ID,
+            $env:AZURE_ARTIFACT_SIGNING_ENDPOINT, $env:AZURE_ARTIFACT_SIGNING_ACCOUNT,
+            $env:AZURE_ARTIFACT_SIGNING_PROFILE, $env:CODE_SIGNING_PUBLISHER
+          )
+          if ($required -contains "") {
+            "SIGNING_ENABLED=false" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "RELEASE_PUBLISHER=" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Warning "Azure Artifact Signing is not configured; publishing an unsigned release."
+          } else {
+            "SIGNING_ENABLED=true" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "RELEASE_PUBLISHER=$env:CODE_SIGNING_PUBLISHER" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+
       # OIDC issues a short-lived GitHub token for Azure; no code-signing
       # private key or long-lived client secret is stored in this repository.
       - name: Authenticate to Azure Artifact Signing
+        if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Never publish a release that Windows cannot attribute to the verified
-      # publisher.  The Artifact Signing identity and publisher name are kept
+      # When configured, the Artifact Signing identity and publisher name stay
       # outside the repository in GitHub secrets/variables.
       - name: Sign application executables
+        if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: Azure/artifact-signing-action@v2
         with:
           endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
@@ -95,9 +121,10 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Verify signed application payload
+        if: ${{ env.SIGNING_ENABLED == 'true' }}
         shell: pwsh
         run: |
-          py -B tools/verify_authenticode.py dist\Unlock --publisher "${{ vars.CODE_SIGNING_PUBLISHER }}"
+          py -B tools/verify_authenticode.py dist\Unlock --publisher "$env:RELEASE_PUBLISHER"
 
       - name: Package Unlock.zip
         shell: pwsh
@@ -108,9 +135,11 @@ jobs:
         run: |
           $version = $env:RELEASE_TAG.Substring(1)
           $packageUrl = "https://github.com/${{ github.repository }}/releases/download/$env:RELEASE_TAG/Unlock.zip"
-          py -B tools/build_unlock_setup.py --zip dist/Unlock.zip --version $version --package-url $packageUrl --publisher "${{ vars.CODE_SIGNING_PUBLISHER }}"
+          $publisherArgs = if ($env:RELEASE_PUBLISHER) { @("--publisher", $env:RELEASE_PUBLISHER) } else { @() }
+          py -B tools/build_unlock_setup.py --zip dist/Unlock.zip --version $version --package-url $packageUrl @publisherArgs
 
       - name: Sign bootstrap installer
+        if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: Azure/artifact-signing-action@v2
         with:
           endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
@@ -123,9 +152,10 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Verify every shipped executable
+        if: ${{ env.SIGNING_ENABLED == 'true' }}
         shell: pwsh
         run: |
-          py -B tools/verify_authenticode.py dist\Unlock dist\UnlockSetup.exe --publisher "${{ vars.CODE_SIGNING_PUBLISHER }}"
+          py -B tools/verify_authenticode.py dist\Unlock dist\UnlockSetup.exe --publisher "$env:RELEASE_PUBLISHER"
 
       - name: Write checksums
         shell: pwsh

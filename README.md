@@ -26,12 +26,12 @@
 ### Рекомендуемый способ
 
 1. Откройте [Releases](https://github.com/voblya-dev/unlock/releases/latest) и скачайте `UnlockSetup.exe`.
-   У опубликованного установщика в свойствах Windows, на вкладке «Цифровые подписи», должен быть действительный подписант разработчика. Не запускайте файл, если подписи нет или она недействительна.
+   Если у опубликованного установщика есть вкладка «Цифровые подписи», убедитесь, что подписант действителен. Для неподписанного релиза сверяйте SHA-256 из `SHA256SUMS.txt`.
 2. Запустите установщик и оставьте или измените папку установки.
 3. Отметьте нужные пункты: ярлык на рабочем столе, ярлык в меню «Пуск», запуск при входе и запуск после установки.
 4. Нажмите **Install**.
 
-Установщик скачивает актуальный `Unlock.zip` из GitHub Release, проверяет размер и SHA-256 из встроенного манифеста, затем проверяет цифровые подписи всех исполняемых файлов перед копированием и создаёт ярлыки. Ему не нужны права администратора для копирования файлов; права запрашиваются самим Unlock только при включении компонентов, которым они требуются.
+Установщик скачивает актуальный `Unlock.zip` из GitHub Release, проверяет размер и SHA-256 из встроенного манифеста, а при наличии ожидаемого издателя — цифровые подписи исполняемых файлов перед копированием. Ему не нужны права администратора для копирования файлов; права запрашиваются самим Unlock только при включении компонентов, которым они требуются.
 
 ### Обновление, переустановка и удаление
 
@@ -147,8 +147,8 @@ Benchmark проверяет доступность Discord, YouTube, Google и 
 - WinDivert и TUN требуют Administrator rights.
 - Приложение допускает только один запущенный экземпляр.
 - При аварийном завершении Unlock пытается восстановить системный прокси и остановить оставшийся VPN-интерфейс.
-- Установщик проверяет размер, контрольную сумму и Authenticode-подписи пакета до установки.
-- Каждый релиз собирается в GitHub Actions, подписывается Azure Artifact Signing и получает проверяемую GitHub provenance-аттестацию. Хеши лежат в `SHA256SUMS.txt`.
+- Установщик всегда проверяет размер и контрольную сумму пакета; Authenticode-подписи проверяются, когда для релиза настроен ожидаемый издатель.
+- Каждый релиз собирается в GitHub Actions и получает проверяемую GitHub provenance-аттестацию. При настроенном Azure Artifact Signing он также подписывается; хеши лежат в `SHA256SUMS.txt`.
 - Встроенные бинарники поставляются вместе с нужными лицензиями; лицензия `tg-ws-proxy` находится в `unlock/tgwsproxy/LICENSE`.
 
 ## Запуск из исходников
@@ -203,7 +203,7 @@ GitHub Actions по тегу `v*`:
 5. собирает и подписывает `UnlockSetup.exe`;
 6. публикует `Unlock.zip`, `loader_manifest.json`, `UnlockSetup.exe` и `SHA256SUMS.txt` в GitHub Release, а для ZIP и установщика — provenance-аттестации.
 
-Перед первым защищённым выпуском создайте Azure Artifact Signing account с проверенным publisher identity, назначьте GitHub OIDC-federated credential для Environment `release` и роли `Artifact Signing Certificate Profile Signer`, затем задайте GitHub Actions secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_ARTIFACT_SIGNING_ENDPOINT`, `AZURE_ARTIFACT_SIGNING_ACCOUNT`, `AZURE_ARTIFACT_SIGNING_PROFILE` и repository variable `CODE_SIGNING_PUBLISHER` (точная часть Subject сертификата, например `O=Your Company`). Workflow использует короткоживущий OIDC-токен, поэтому не хранит приватный ключ или секрет сертификата. Без этих настроек он намеренно завершится ошибкой и не выпустит неподписанный файл. Для новых срабатываний Defender отправляйте именно подписанный релиз как ложное срабатывание через [Microsoft Security Intelligence](https://www.microsoft.com/wdsi/filesubmission); ссылка на релиз и SHA-256 из `SHA256SUMS.txt` позволяют службе проверить конкретный образец.
+Для подписанного выпуска создайте Azure Artifact Signing account с проверенным publisher identity, назначьте GitHub OIDC-federated credential для Environment `release` и роли `Artifact Signing Certificate Profile Signer`, затем задайте GitHub Actions secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_ARTIFACT_SIGNING_ENDPOINT`, `AZURE_ARTIFACT_SIGNING_ACCOUNT`, `AZURE_ARTIFACT_SIGNING_PROFILE` и repository variable `CODE_SIGNING_PUBLISHER` (точная часть Subject сертификата, например `O=Your Company`). Workflow использует короткоживущий OIDC-токен, поэтому не хранит приватный ключ или секрет сертификата. Без этих настроек он публикует неподписанный релиз; сверяйте `SHA256SUMS.txt`. Для новых срабатываний Defender отправляйте именно подписанный релиз как ложное срабатывание через [Microsoft Security Intelligence](https://www.microsoft.com/wdsi/filesubmission); ссылка на релиз и SHA-256 из `SHA256SUMS.txt` позволяют службе проверить конкретный образец.
 
 Для локальной сборки релизных артефактов:
 

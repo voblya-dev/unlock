@@ -37,7 +37,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--publisher",
-        required=True,
+        default="",
         help="Authenticode publisher expected for the packaged application files",
     )
     args = parser.parse_args()

@@ -172,7 +172,8 @@ def _verify_payload_signatures(root: Path, publisher: str, log: LogCallback) -> 
     if os.name != "nt":
         return
     if not publisher:
-        raise RuntimeError("Release manifest has no required code-signing publisher.")
+        log("Integrity warning: this release has no Authenticode publisher; SHA-256 is verified, but Windows cannot verify the publisher.")
+        return
 
     files = sorted(
         path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in {".exe", ".dll", ".sys"}
