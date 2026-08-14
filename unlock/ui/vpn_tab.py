@@ -8,6 +8,9 @@ without opening anything.
 from __future__ import annotations
 
 import math
+import re
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from PyQt6.QtCore import (
@@ -80,6 +83,50 @@ class DropImportWorker(QThread):
             except (VpnLinkError, Exception) as exc:     # noqa: BLE001
                 errors.append(f"{Path(path).name}: {exc}")
         self.done.emit(profiles, errors)
+
+
+class ProfilePingWorker(QThread):
+    """Measure every server's ICMP round-trip without changing the VPN route."""
+
+    done = pyqtSignal(object)  # dict[profile id, milliseconds | None]
+
+    _TIMEOUT_MS = 1500
+    _TIME_RE = re.compile(r"(?:time|время)\s*[=<]\s*(\d+)", re.IGNORECASE)
+
+    def __init__(self, profiles: list[Profile]) -> None:
+        super().__init__()
+        self._profiles = profiles
+
+    @classmethod
+    def _ping(cls, profile: Profile) -> float | None:
+        try:
+            result = subprocess.run(
+                ["ping", "-n", "1", "-w", str(cls._TIMEOUT_MS), profile.server],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=(cls._TIMEOUT_MS / 1000) + 1,
+                creationflags=0x08000000,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        match = cls._TIME_RE.search(result.stdout)
+        return float(match.group(1)) if result.returncode == 0 and match else None
+
+    def run(self) -> None:
+        results: dict[str, float | None] = {}
+        # A subscription can contain dozens of locations. A small pool keeps
+        # the button responsive without firing an unbounded burst of ICMP.
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {pool.submit(self._ping, profile): profile.id for profile in self._profiles}
+            for future in as_completed(futures):
+                profile_id = futures[future]
+                try:
+                    results[profile_id] = future.result()
+                except Exception:  # pragma: no cover - defensive worker boundary
+                    results[profile_id] = None
+        self.done.emit(results)
 
 
 class TunnelOrbitButton(QWidget):
@@ -250,6 +297,13 @@ class ProfileCard(QFrame):
         # card claims the full text width and is clipped by the scroll area.
         layout.addLayout(text, 1)
 
+        self._ping = QLabel("—")
+        self._ping.setObjectName("hint")
+        self._ping.setMinimumWidth(54)
+        self._ping.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._ping.setToolTip(tr("Server ping"))
+        layout.addWidget(self._ping)
+
         remove = QPushButton("×")
         remove.setObjectName("windowButton")
         remove.setFixedSize(26, 26)
@@ -285,6 +339,18 @@ class ProfileCard(QFrame):
             # make the selection land as a movement rather than a colour swap.
             anim.pulse(self)
 
+    def set_ping(self, milliseconds: float | None, *, checking: bool = False) -> None:
+        if checking:
+            self._ping.setText("…")
+            self._ping.setStyleSheet(f"color: {theme.TEXT_FAINT};")
+        elif milliseconds is None:
+            self._ping.setText(tr("Unreachable"))
+            self._ping.setStyleSheet(f"color: {theme.DANGER}; font-size: 10px;")
+        else:
+            self._ping.setText(f"{milliseconds:.0f} ms")
+            colour = theme.SUCCESS if milliseconds < 180 else theme.WARNING
+            self._ping.setStyleSheet(f"color: {colour}; font-weight: 600;")
+
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.selected.emit(self._profile.id)
@@ -303,6 +369,7 @@ class VpnTab(SeascapePage):
         super().__init__(parent)
         self._controller = controller
         self._worker: DropImportWorker | None = None
+        self._ping_worker: ProfilePingWorker | None = None
         self._cards: list[ProfileCard] = []
         self.setAcceptDrops(True)
 
@@ -408,6 +475,7 @@ class VpnTab(SeascapePage):
         missing = [
             name for name, found in (
                 ("sing-box.exe", vpn_engine.singbox_path()),
+                ("xray.exe", vpn_engine.xray_path()),
                 ("wireproxy.exe", vpn_engine.wireproxy_path()),
             )
             if found is None
@@ -448,6 +516,9 @@ class VpnTab(SeascapePage):
         add.setObjectName("primary")
         add.clicked.connect(self._open_add_dialog)
         header.addWidget(add)
+        self._ping_all = QPushButton(tr("Ping all"))
+        self._ping_all.clicked.connect(self._ping_every_server)
+        header.addWidget(self._ping_all)
         outer.addLayout(header)
 
         self._empty = QLabel(tr("No servers yet — press Add, or drop a config here."))
@@ -538,12 +609,23 @@ class VpnTab(SeascapePage):
         active = self._controller.config.get("vpn_active")
         self._empty.setVisible(not profiles)
 
-        for index, profile in enumerate(profiles):
-            card = ProfileCard(profile, active=profile.id == active)
-            card.selected.connect(self._on_select)
-            card.removed.connect(self._on_remove)
-            self._list.insertWidget(index, card)
-            self._cards.append(card)
+        groups: dict[str, list[Profile]] = {}
+        for profile in profiles:
+            groups.setdefault(_protocol_label(profile), []).append(profile)
+
+        index = 0
+        for protocol, grouped_profiles in groups.items():
+            heading = QLabel(f"{protocol.upper()}  ·  {len(grouped_profiles)}")
+            heading.setObjectName("metricLabel")
+            self._list.insertWidget(index, heading)
+            index += 1
+            for profile in grouped_profiles:
+                card = ProfileCard(profile, active=profile.id == active)
+                card.selected.connect(self._on_select)
+                card.removed.connect(self._on_remove)
+                self._list.insertWidget(index, card)
+                self._cards.append(card)
+                index += 1
         anim.stagger_in(self._cards)
 
     @pyqtSlot(str)
@@ -568,6 +650,29 @@ class VpnTab(SeascapePage):
             finish()
         else:
             card.collapse(finish)
+
+    def _ping_every_server(self) -> None:
+        if self._ping_worker is not None and self._ping_worker.isRunning():
+            return
+        profiles = self._controller.vpn_profiles()
+        if not profiles:
+            return
+        self._ping_all.setEnabled(False)
+        self._ping_all.setText(tr("Checking…"))
+        for card in self._cards:
+            card.set_ping(None, checking=True)
+        worker = ProfilePingWorker(profiles)
+        worker.done.connect(self._apply_ping_results)
+        self._ping_worker = worker
+        worker.start()
+
+    @pyqtSlot(object)
+    def _apply_ping_results(self, results: dict) -> None:
+        for card in self._cards:
+            card.set_ping(results.get(card.profile_id))
+        self._ping_all.setEnabled(True)
+        self._ping_all.setText(tr("Ping all"))
+        self._ping_worker = None
 
     # ------------------------------------------------------------- import
 
@@ -613,6 +718,4 @@ class VpnTab(SeascapePage):
             anim.expand(self._status)
         elif not text and was_visible:
             anim.collapse(self._status)
-
-
 

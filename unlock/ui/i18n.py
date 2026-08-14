@@ -22,6 +22,11 @@ _current = EN
 
 
 _RU: dict[str, str] = {
+    # --- VPN server list
+    "Ping all": "Пинговать все",
+    "Checking…": "Проверяем…",
+    "Unreachable": "Нет ответа",
+    "Server ping": "Пинг сервера",
     # --- security / missing components
     "VPN component missing": "Нет компонента VPN",
     "%s is missing, so some VPN protocols cannot connect.":

@@ -82,6 +82,17 @@ class Profile:
         stored_id = data.get("id")
         if isinstance(stored_id, str) and stored_id:
             profile.id = stored_id
+        # Older releases saved the raw share link but discarded transports that
+        # sing-box does not implement (notably mKCP and XHTTP). Reparse it on
+        # load so saved profiles gain the Xray settings without making people
+        # delete and import their subscription again.
+        if profile.protocol == "vless" and profile.link and "_xray" not in profile.outbound:
+            try:
+                refreshed = parse_link(profile.link)
+            except (VpnLinkError, ValueError, KeyError):
+                pass
+            else:
+                profile.outbound = refreshed.outbound
         return profile
 
 
@@ -158,6 +169,95 @@ def _apply_stream(outbound: dict, query: dict, default_sni: str) -> None:
         outbound["transport"] = transport
 
 
+def _int_param(query: dict, name: str) -> int | None:
+    try:
+        return int(query[name]) if query.get(name) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _xray_stream(query: dict, default_sni: str) -> dict | None:
+    """Translate VLESS transports implemented by Xray but not sing-box.
+
+    sing-box deliberately has no mKCP transport. XHTTP is likewise an Xray
+    transport.  Keep the original link parameters in a compact Xray-specific
+    block so the normal sing-box outbound never sees unknown fields.
+    """
+    kind = (query.get("type") or query.get("net") or "tcp").lower()
+    if kind not in ("kcp", "mkcp", "xhttp", "splithttp"):
+        return None
+
+    security = (query.get("security") or "none").lower()
+    stream: dict = {
+        "network": "kcp" if kind in ("kcp", "mkcp") else "xhttp",
+        "security": security,
+    }
+    server_name = query.get("sni") or query.get("peer") or default_sni
+    if security == "reality":
+        stream["realitySettings"] = {
+            "serverName": server_name,
+            "fingerprint": query.get("fp") or "chrome",
+            "publicKey": query.get("pbk", ""),
+            "shortId": query.get("sid", ""),
+            "spiderX": query.get("spx") or "/",
+        }
+    elif security in ("tls", "xtls"):
+        tls = {
+            "serverName": server_name,
+            "allowInsecure": _truthy(query.get("allowInsecure")) or _truthy(query.get("insecure")),
+        }
+        if query.get("fp"):
+            tls["fingerprint"] = query["fp"]
+        if query.get("alpn"):
+            tls["alpn"] = [part for part in unquote(query["alpn"]).split(",") if part]
+        stream["tlsSettings"] = tls
+
+    if kind in ("kcp", "mkcp"):
+        kcp = {key: value for key, value in (
+            ("mtu", _int_param(query, "mtu")),
+            ("tti", _int_param(query, "tti")),
+        ) if value is not None}
+        if kcp:
+            stream["kcpSettings"] = kcp
+        # V2RayTun exports its mKCP disguise as ``mkcp-legacy``. Current Xray
+        # renamed these masks: the traditional headers are ``header-*`` and
+        # the bare/encrypted variants are ``mkcp-original`` /
+        # ``mkcp-aes128gcm``.
+        if query.get("fm"):
+            try:
+                finalmask = json.loads(query["fm"])
+            except (TypeError, ValueError):
+                finalmask = None
+            masks = finalmask.get("udp") if isinstance(finalmask, dict) else None
+            if isinstance(masks, list):
+                translated: list[dict] = []
+                for item in masks:
+                    if not isinstance(item, dict) or item.get("type") != "mkcp-legacy":
+                        continue
+                    options = item.get("settings")
+                    options = options if isinstance(options, dict) else {}
+                    header = str(options.get("header") or "")
+                    value = str(options.get("value") or "")
+                    if header:
+                        translated.append({"type": f"header-{header}", "settings": {}})
+                    else:
+                        translated.append({
+                            "type": "mkcp-aes128gcm" if value else "mkcp-original",
+                            "settings": {"password": value} if value else {},
+                        })
+                if translated:
+                    stream["finalmask"] = {"udp": translated}
+    else:
+        stream["xhttpSettings"] = {
+            "path": unquote(query.get("path") or "/"),
+            "mode": query.get("mode") or "auto",
+        }
+        host = unquote(query.get("host") or "")
+        if host:
+            stream["xhttpSettings"]["host"] = host
+    return stream
+
+
 # ------------------------------------------------------------------ per-scheme
 
 
@@ -174,7 +274,14 @@ def _parse_vless(url, query: dict, tag: str) -> Profile:
         outbound["flow"] = flow
     if (query.get("encryption") or "none") != "none":
         outbound["packet_encoding"] = query["encryption"]
-    _apply_stream(outbound, query, url.hostname or "")
+    xray_stream = _xray_stream(query, url.hostname or "")
+    if xray_stream:
+        outbound["_xray"] = {
+            "stream": xray_stream,
+            "encryption": query.get("encryption") or "none",
+        }
+    else:
+        _apply_stream(outbound, query, url.hostname or "")
     return Profile(tag, "vless", url.hostname or "", url.port or 443, outbound)
 
 

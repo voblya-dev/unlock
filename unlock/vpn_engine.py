@@ -31,6 +31,8 @@ from .constants import (
     VPN_TUN_MTU,
     WIREPROXY_CONFIG_PATH,
     WIREPROXY_SEARCH_DIRS,
+    XRAY_CONFIG_PATH,
+    XRAY_SEARCH_DIRS,
 )
 from .logger import get_logger
 from .vpn_links import Profile
@@ -71,8 +73,14 @@ def wireproxy_path():
     return _find(WIREPROXY_SEARCH_DIRS, "wireproxy.exe")
 
 
+def xray_path():
+    return _find(XRAY_SEARCH_DIRS, "xray.exe")
+
+
 def engine_for(profile: Profile) -> str:
-    return "wireproxy" if profile.protocol in _WIREGUARD_PROTOCOLS else "sing-box"
+    if profile.protocol in _WIREGUARD_PROTOCOLS:
+        return "wireproxy"
+    return "xray" if profile.outbound.get("_xray") else "sing-box"
 
 
 def build_config(profile: Profile) -> dict:
@@ -124,6 +132,58 @@ def build_config(profile: Profile) -> dict:
             ],
             "final": "proxy",
         },
+    }
+
+
+def build_xray_config(profile: Profile) -> dict:
+    """Xray config for VLESS mKCP and XHTTP links.
+
+    Those transports are intentionally unsupported by sing-box. Xray exposes
+    the same local SOCKS/HTTP ports, so the rest of Unlock (TUN, system proxy
+    and traffic stats) continues to work without a separate UI path.
+    """
+    settings = profile.outbound.get("_xray") or {}
+    stream = dict(settings.get("stream") or {})
+    user = {
+        "id": profile.outbound["uuid"],
+        "encryption": settings.get("encryption") or "none",
+    }
+    if profile.outbound.get("flow"):
+        user["flow"] = profile.outbound["flow"]
+    return {
+        "log": {"loglevel": "warning"},
+        "inbounds": [
+            {
+                "listen": "127.0.0.1",
+                "port": VPN_SOCKS_PORT,
+                "protocol": "socks",
+                "settings": {"auth": "noauth", "udp": True},
+                "tag": "socks-in",
+            },
+            {
+                "listen": "127.0.0.1",
+                "port": VPN_HTTP_PORT,
+                "protocol": "http",
+                "settings": {},
+                "tag": "http-in",
+            },
+        ],
+        "outbounds": [
+            {
+                "protocol": "vless",
+                "tag": "proxy",
+                "settings": {
+                    "vnext": [{
+                        "address": profile.server,
+                        "port": profile.port,
+                        "users": [user],
+                    }],
+                },
+                "streamSettings": stream,
+            },
+            {"protocol": "freedom", "tag": "direct"},
+        ],
+        "routing": {"domainStrategy": "AsIs", "rules": []},
     }
 
 
@@ -180,11 +240,11 @@ def build_tun_config(
     the reason apps like Telegram Desktop (which ignores the Windows proxy
     setting) work under it but not under a bare SOCKS listener.
     """
-    if engine_for(profile) == "wireproxy":
+    if engine_for(profile) in ("wireproxy", "xray"):
         # wireproxy already terminates the WireGuard session and exposes it as
         # SOCKS, so sing-box only has to hand traffic over. That listener is
         # TCP-only, which the routing rules below have to work around.
-        udp_blocked = True
+        udp_blocked = engine_for(profile) == "wireproxy"
         outbound = {
             "type": "socks",
             "tag": "proxy",
@@ -240,7 +300,7 @@ def build_tun_config(
                 {"ip_is_private": True, "outbound": "direct"},
                 # wireproxy's own UDP to the WireGuard endpoint must not be
                 # routed back into the adapter it is feeding.
-                {"process_name": ["wireproxy.exe"], "outbound": "direct"},
+                {"process_name": ["wireproxy.exe", "xray.exe"], "outbound": "direct"},
                 # wireproxy's SOCKS listener speaks TCP only, so UDP cannot
                 # cross it. Refusing it outright makes browsers and Telegram
                 # fall back to TCP immediately instead of waiting out a
@@ -303,6 +363,18 @@ class VpnEngine:
                 build_wireproxy_config(profile), encoding="utf-8"
             )
             return [str(exe), "-c", str(WIREPROXY_CONFIG_PATH)]
+
+        if engine_for(profile) == "xray":
+            exe = xray_path()
+            if exe is None:
+                raise VpnEngineError(
+                    f"xray.exe not found in {XRAY_SEARCH_DIRS[0]}. "
+                    "It is required for VLESS mKCP and XHTTP links — reinstall Unlock."
+                )
+            XRAY_CONFIG_PATH.write_text(
+                json.dumps(build_xray_config(profile), indent=2), encoding="utf-8"
+            )
+            return [str(exe), "run", "-c", str(XRAY_CONFIG_PATH)]
 
         exe = singbox_path()
         if exe is None:

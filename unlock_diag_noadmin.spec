@@ -45,12 +45,12 @@ if not list((bin_dir / "zapret" / "configs").glob("general*.bat")):
         "Run:  python tools/fetch_zapret.py"
     )
 
-# The VPN engines: sing-box covers the v2ray family, wireproxy covers WireGuard
-# and AmneziaWG as a SOCKS listener, and amneziawg drives a real Wintun adapter
-# for the same protocols so UDP works. Without them the VPN tab can save servers
-# but never bring a tunnel up, so a build that omits them is not worth shipping.
+# The VPN engines: sing-box covers ordinary v2ray links; Xray adds VLESS mKCP
+# and XHTTP; wireproxy covers WireGuard and AmneziaWG as a SOCKS listener; and
+# amneziawg drives a real Wintun adapter for the same protocols so UDP works.
 for engine, url in (
     ("sing-box/sing-box.exe", "github.com/SagerNet/sing-box/releases"),
+    ("xray/xray.exe", "github.com/XTLS/Xray-core/releases"),
     ("wireproxy/wireproxy.exe", "github.com/artem-russkikh/wireproxy-awg/releases"),
     ("amneziawg/amneziawg.exe", "github.com/amnezia-vpn/amneziawg-windows-client/releases"),
     # amneziawg.exe loads this by name from its own directory; without it the

@@ -90,6 +90,7 @@ def _warn_about_missing_vpn_components(parent: MainWindow) -> None:
     missing = [
         name for name, path in (
             ("sing-box.exe", vpn_engine.singbox_path()),
+            ("xray.exe", vpn_engine.xray_path()),
             ("wireproxy.exe", vpn_engine.wireproxy_path()),
         )
         if path is None

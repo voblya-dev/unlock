@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 
 # ---------------------------------------------------------------- paths
 
@@ -58,6 +58,10 @@ WIREPROXY_SEARCH_DIRS = (
     BIN_DIR / "wireproxy",
 )
 
+XRAY_SEARCH_DIRS = (
+    BIN_DIR / "xray",
+)
+
 # Amnezia's own Windows client, used headless. Unlike wireproxy it drives a real
 # Wintun adapter, so UDP works — Discord voice, games, QUIC. wintun.dll must sit
 # next to the exe; amneziawg.exe loads it by name from its own directory.
@@ -67,6 +71,7 @@ AMNEZIAWG_SEARCH_DIRS = (
 
 VPN_CONFIG_PATH = DATA_DIR / "vpn-config.json"
 WIREPROXY_CONFIG_PATH = DATA_DIR / "vpn-wg.conf"
+XRAY_CONFIG_PATH = DATA_DIR / "vpn-xray.json"
 
 # The tunnel service reads this file, and names its adapter after the stem.
 # It must live somewhere SYSTEM can read: the service runs as LocalSystem, so a
