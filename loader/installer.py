@@ -524,6 +524,44 @@ def install_release(
         return installed_exe
 
 
+def uninstall_release(
+    install_dir: Path,
+    *,
+    log: LogCallback,
+    progress: ProgressCallback,
+    set_stage: Callable[[int, str, str], None],
+) -> Path:
+    """Remove a known Unlock installation without touching user settings."""
+    target = install_dir.expanduser().resolve()
+    exe_path = target / f"{APP_NAME}.exe"
+    # Do not let a typo turn the remove action into a generic folder deleter.
+    # Only a directory that contains the expected installed executable qualifies.
+    if not exe_path.is_file():
+        raise RuntimeError(f"No {APP_NAME} installation was found in {target}.")
+
+    set_stage(0, "Removing Unlock", "Removing shortcuts and startup entry")
+    progress(15, "Removing shortcuts")
+    _remove_path(DESKTOP_LINK)
+    _remove_path(START_MENU_LINK)
+    _set_autostart(False, exe_path)
+
+    set_stage(1, "Removing Unlock", f"Deleting {target}")
+    progress(55, "Removing application files")
+    try:
+        shutil.rmtree(target)
+    except OSError as exc:
+        raise RuntimeError(
+            "Could not remove Unlock. Close Unlock and try again. "
+            f"Details: {exc}"
+        ) from exc
+    if target.exists():
+        raise RuntimeError("Could not remove all Unlock files. Close Unlock and try again.")
+
+    progress(100, "Unlock removed")
+    log(f"Uninstall: removed {target}")
+    return target
+
+
 class InstallerThread(QThread):
     """Worker thread that keeps file and network IO off the UI thread."""
 
@@ -557,3 +595,30 @@ class InstallerThread(QThread):
             self.install_failed.emit(str(exc))
         else:
             self.install_succeeded.emit(str(result))
+
+
+class UninstallerThread(QThread):
+    """Remove a local Unlock installation without blocking the installer UI."""
+
+    stage_changed = pyqtSignal(int, str, str)
+    progress_changed = pyqtSignal(int, str)
+    log_message = pyqtSignal(str)
+    uninstall_succeeded = pyqtSignal(str)
+    uninstall_failed = pyqtSignal(str)
+
+    def __init__(self, install_dir: Path) -> None:
+        super().__init__()
+        self._install_dir = install_dir
+
+    def run(self) -> None:
+        try:
+            result = uninstall_release(
+                self._install_dir,
+                log=self.log_message.emit,
+                progress=self.progress_changed.emit,
+                set_stage=self.stage_changed.emit,
+            )
+        except Exception as exc:
+            self.uninstall_failed.emit(str(exc))
+        else:
+            self.uninstall_succeeded.emit(str(result))
