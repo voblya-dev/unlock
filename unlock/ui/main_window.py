@@ -348,7 +348,11 @@ class MainWindow(QWidget):
             ("home",   "ГЛАВНАЯ"),
             ("shield", "VPN"),
             ("split",  "МАРШРУТЫ"),
-            ("list",   tr("Lists")),
+            # Sidebar labels are a fixed Russian, all-caps command vocabulary.
+            # Keep this in line with the neighbouring navigation items instead
+            # of letting the currently selected content language turn it into
+            # the lone English, title-cased entry.
+            ("list",   "СПИСКИ"),
             ("gear",   "НАСТРОЙКИ"),
             ("list",   "ЖУРНАЛ"),
         ]
@@ -440,7 +444,7 @@ class MainWindow(QWidget):
         self._log_view.setPlainText(history)
         self._pages.setCurrentIndex(current)
         # Re-sync nav button labels after language change
-        nav_labels = ["ГЛАВНАЯ", "VPN", "МАРШРУТЫ", tr("Lists"), "НАСТРОЙКИ", "ЖУРНАЛ"]
+        nav_labels = ["ГЛАВНАЯ", "VPN", "МАРШРУТЫ", "СПИСКИ", "НАСТРОЙКИ", "ЖУРНАЛ"]
         for btn, label in zip(self._nav_buttons, nav_labels):
             btn.setText(label)
         self._load_settings_into_ui()
