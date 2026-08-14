@@ -558,6 +558,14 @@ class Controller(QObject):
 
     def apply_site_lists(self) -> None:
         """Apply a saved site-list edit without disturbing VPN or Telegram."""
+        # The local genetic search can retain a method that passed its old probe
+        # set but does not handle a newly added site. Zapret-GUI launches the
+        # proven General profile for its user list, so do the same whenever a
+        # list is edited instead of silently keeping a stale evolved method.
+        selected = self.config.get("dpi_strategy")
+        if isinstance(selected, str) and selected.startswith("Evolved ("):
+            self.config.set("dpi_strategy", "general")
+            log.info("Reset evolved DPI strategy to General for updated site lists")
         if self.dpi.running:
             self.restart_dpi(success_message="DPI restarted — changes applied")
         else:

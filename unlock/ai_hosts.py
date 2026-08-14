@@ -31,6 +31,11 @@ AI_PROTECTED_HOSTS = frozenset({
     "objects.githubusercontent.com",
     "codeload.github.com",
 })
+# Earlier Unlock versions cached only a few dozen AI rows.  Zapret-GUI's
+# mechanism is the complete dns.malw.link bundle, which is thousands of rows;
+# this threshold makes an enabled mode migrate instead of silently reusing the
+# incompatible old cache after an application update.
+MIN_COMPLETE_BUNDLE_ROWS = 1000
 
 AI_DOMAIN_SUFFIXES: tuple[str, ...] = (
     "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com",
@@ -130,6 +135,18 @@ def load_cached_ai_hosts(path: Path = AI_HOSTS_CACHE_PATH) -> str:
     except OSError:
         return ""
     return text if _bundle_looks_useful(text) else ""
+
+
+def cached_complete_ai_bundle(path: Path = AI_HOSTS_CACHE_PATH) -> AiHostsBundle | None:
+    """Return a modern full cache, never the short pre-1.1.4 mapping cache."""
+    text = load_cached_ai_hosts(path)
+    rows = sum(
+        1 for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    if rows < MIN_COMPLETE_BUNDLE_ROWS:
+        return None
+    return AiHostsBundle(text, _ai_domains_from_bundle(text), "cache", "cached")
 
 
 def _download_text(url: str, timeout: float) -> str:

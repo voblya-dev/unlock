@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..ai_hosts import AiHostsError, refresh_ai_mappings
+from ..ai_hosts import AiHostsError, cached_complete_ai_bundle, refresh_ai_mappings
 from ..host_overrides import apply_ai_hosts, remove_ai_hosts_block, request_elevated
 from ..site_lists import (
     AI_SITES,
@@ -120,6 +120,17 @@ class SiteListsWorker(QThread):
                         # be read; replacing it with the smaller fallback here
                         # would make a transient outage break live services.
                         result = (MutationResult(), False, "", str(exc))
+            elif self._action == "ai_sync":
+                # An AI mode enabled before an app update must not keep the
+                # former short mapping cache. This mirrors Zapret-GUI's startup
+                # sync and updates the managed block before DPI is used.
+                bundle = cached_complete_ai_bundle() or refresh_ai_mappings()
+                try:
+                    apply_ai_hosts(bundle.hosts_text)
+                except OSError:
+                    result = (MutationResult(changed=1), True, bundle.source, "")
+                else:
+                    result = (MutationResult(changed=1), False, bundle.source, "")
             else:
                 raise ValueError(f"Unknown site-list operation: {self._action}")
             self.completed.emit(self._action, result)
@@ -346,6 +357,8 @@ class SitesTab(SeascapePage):
         controller.status_message.connect(self._show_notice)
         self.reload()
         anim.stagger_in([self._list_card, self._hosts_card])
+        if self._manager.ai_sites_enabled:
+            self._run_mutation("ai_sync")
 
     # ------------------------------------------------------------- layout
 
@@ -624,7 +637,7 @@ class SitesTab(SeascapePage):
         elevation_needed = False
         source = ""
         ai_error = ""
-        if action in {"ai_on", "ai_off", "ai_refresh"} and isinstance(result, tuple):
+        if action in {"ai_on", "ai_off", "ai_refresh", "ai_sync"} and isinstance(result, tuple):
             result, elevation_needed, source, ai_error = result
         self._selected.clear()
         self.reload()
@@ -633,7 +646,7 @@ class SitesTab(SeascapePage):
                 self._controller.status_message.emit(tr("Rule added"))
             elif action == "import":
                 self._controller.status_message.emit(tr("List imported: %d rules" ) % result.added)
-            elif action == "ai_refresh":
+            elif action in {"ai_refresh", "ai_sync"}:
                 message = tr("AI services list updated")
                 if source == "cache":
                     message = tr("AI services updated from cache")
@@ -654,7 +667,7 @@ class SitesTab(SeascapePage):
             self._controller.status_message.emit(tr("No valid new rules"))
         elif result.duplicates:
             self._controller.status_message.emit(tr("Rules already exist"))
-        elif action == "ai_refresh" and ai_error:
+        elif action in {"ai_refresh", "ai_sync"} and ai_error:
             self._controller.error.emit(ai_error)
         if elevation_needed:
             elevated_action = "ai-remove" if action == "ai_off" else "ai-apply"
