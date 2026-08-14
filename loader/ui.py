@@ -521,8 +521,9 @@ class InstallerWindow(QMainWindow):
         box = OptionCheckBox(title)
         box.setChecked(checked)
         box.setObjectName("optionBox")
-        layout.addWidget(box)
-        layout.addStretch(1)
+        # Give the checkbox the whole row: its custom painter draws the label
+        # itself, so a trailing stretch would otherwise clip longer captions.
+        layout.addWidget(box, 1)
         return row, box
 
     def _apply_styles(self) -> None:
@@ -654,7 +655,7 @@ class InstallerWindow(QMainWindow):
                 background: #f5f5f2;
                 color: #0a0a0a;
                 border: 1px solid #f5f5f2;
-                padding: 13px 22px;
+                padding: 0 18px;
                 font-weight: 800;
             }
             #primaryButton:hover {
@@ -662,7 +663,8 @@ class InstallerWindow(QMainWindow):
                 border-color: #ffffff;
             }
             #buttonRow QPushButton {
-                min-width: 118px;
+                min-width: 156px;
+                max-width: 156px;
             }
             #optionRow {
                 background: #111111;
