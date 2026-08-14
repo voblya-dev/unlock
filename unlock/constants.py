@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.0.8"
+APP_VERSION = "1.0.9"
 
 # ---------------------------------------------------------------- paths
 

@@ -84,6 +84,7 @@ _RU = {
     "Archive payload is missing %s": "В архиве отсутствует %s",
     "No %s installation was found in %s.": "Установленная копия %s не найдена в папке %s.",
     "Could not remove all Unlock files. Close Unlock and try again.": "Не удалось удалить все файлы Unlock. Закройте Unlock и повторите попытку.",
+    "Could not replace the old Unlock folder. Close Unlock and try again.": "Не удалось заменить старую папку Unlock. Закройте Unlock и повторите попытку.",
 }
 
 

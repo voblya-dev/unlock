@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import zipfile
 import ctypes
 from dataclasses import dataclass
@@ -285,12 +286,63 @@ def _safe_extract(archive: Path, destination: Path, cancel: threading.Event) -> 
                 shutil.copyfileobj(src, dst)
 
 
-def _replace_tree(source: Path, destination: Path) -> None:
+def _running_app_pids(exe_path: Path) -> list[int]:
+    """Return only Unlock processes launched from this install folder."""
+    if os.name != "nt":
+        return []
+    script = (
+        "$target = [IO.Path]::GetFullPath('"
+        + _escape_ps(str(exe_path))
+        + "');"
+        "Get-CimInstance Win32_Process -Filter \"Name = 'Unlock.exe'\" | "
+        "Where-Object { $_.ExecutablePath -and "
+        "[IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target } | "
+        "ForEach-Object { $_.ProcessId }"
+    )
+    result = _powershell(script)
+    if result.returncode != 0:
+        return []
+    pids: list[int] = []
+    for value in result.stdout.split():
+        if value.isdecimal():
+            pids.append(int(value))
+    return pids
+
+
+def _stop_running_application(destination: Path, log: LogCallback) -> None:
+    """Stop the installed app and its helper-process tree before replacing it."""
+    exe_path = destination / f"{APP_NAME}.exe"
+    pids = _running_app_pids(exe_path)
+    for pid in pids:
+        result = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            creationflags=0x08000000,
+            check=False,
+        )
+        if result.returncode == 0:
+            log(f"Install: stopped running {APP_NAME} process tree (PID {pid})")
+
+    # Windows may keep a file handle briefly after taskkill reports success.
+    for _ in range(10):
+        if not _running_app_pids(exe_path):
+            return
+        time.sleep(0.2)
+
+
+def _replace_tree(source: Path, destination: Path, log: LogCallback) -> None:
+    _stop_running_application(destination, log)
     backup = destination.with_name(destination.name + ".previous")
     if backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
     if destination.exists():
-        destination.replace(backup)
+        try:
+            destination.replace(backup)
+        except PermissionError as exc:
+            raise RuntimeError(
+                tr("Could not replace the old Unlock folder. Close Unlock and try again.")
+            ) from exc
     try:
         shutil.copytree(source, destination)
     except Exception:
@@ -483,7 +535,7 @@ def install_release(
 
         options.install_dir.parent.mkdir(parents=True, exist_ok=True)
         progress(55, tr("Deploying files"))
-        _replace_tree(payload_root, options.install_dir)
+        _replace_tree(payload_root, options.install_dir, log)
 
         installed_exe = options.install_dir / manifest.entry_exe
         # Keep a dedicated icon file in the shortcut.  Windows otherwise
