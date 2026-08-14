@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,7 +23,6 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
-    QRadialGradient,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -62,84 +60,18 @@ def _card() -> QFrame:
     return frame
 
 
-class AnimatedBackdrop(QWidget):
-    """Obsidian installer backdrop: an understated monochrome signal grid."""
+class MinimalBackdrop(QFrame):
+    """Static brand panel with no decorative or continuous animation."""
 
     def __init__(self) -> None:
         super().__init__()
-        self._phase = 0.0
-        self._energy = 0.25
-        self._progress = 0.0
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
-        self._timer.start(16)
+        self.setObjectName("hero")
 
     def sizeHint(self) -> QSize:
-        return QSize(380, 680)
+        return QSize(300, 560)
 
     def set_progress(self, value: int) -> None:
-        self._progress = max(0.0, min(1.0, value / 100.0))
-        self._energy = 0.25 + self._progress * 0.75
-        self.update()
-
-    def _tick(self) -> None:
-        self._phase += 0.018 + self._energy * 0.01
-        self.update()
-
-    def paintEvent(self, _) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = self.rect()
-
-        painter.fillRect(rect, QColor("#0a0a0a"))
-        painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
-        for x in range(0, rect.width(), 24):
-            painter.drawLine(x, 0, x, rect.height())
-        for y in range(0, rect.height(), 24):
-            painter.drawLine(0, y, rect.width(), y)
-
-        for idx, alpha in enumerate((110, 80, 50)):
-            radius = 190 + idx * 80 + self._progress * 40
-            cx = rect.width() * (0.35 + idx * 0.17)
-            cy = rect.height() * (0.20 + idx * 0.19)
-            cx += 22 * math.cos(self._phase * (0.9 + idx * 0.2))
-            cy += 18 * math.sin(self._phase * (1.2 + idx * 0.3))
-            glow = QRadialGradient(cx, cy, radius)
-            glow.setColorAt(0.0, QColor(255, 255, 252, alpha // 2))
-            glow.setColorAt(0.55, QColor(190, 190, 186, alpha // 5))
-            glow.setColorAt(1.0, QColor(0, 0, 0, 0))
-            painter.setBrush(glow)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
-
-        painter.save()
-        painter.translate(rect.center())
-        scale = min(rect.width(), rect.height()) * 0.62
-        ring_pen = QPen(QColor(245, 245, 242, 68), 1.5)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        for idx in range(4):
-            painter.setPen(ring_pen)
-            orbit_w = scale * (0.52 + idx * 0.12)
-            orbit_h = scale * (0.18 + idx * 0.09)
-            painter.drawEllipse(QRectF(-orbit_w / 2, -orbit_h / 2, orbit_w, orbit_h))
-
-        for idx in range(8):
-            angle = self._phase * (0.9 + idx * 0.04) + idx * 0.65
-            orbit_w = scale * (0.52 + (idx % 4) * 0.12)
-            orbit_h = scale * (0.18 + (idx % 4) * 0.09)
-            x = (orbit_w / 2) * math.cos(angle)
-            y = (orbit_h / 2) * math.sin(angle)
-            dot = 6 + (idx % 3) * 3 + self._progress * 6
-            painter.setBrush(QColor("#f5f5f2"))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(QRectF(x - dot / 2, y - dot / 2, dot, dot))
-        painter.restore()
-
-        painter.setPen(QColor(255, 255, 255, 22))
-        for y in range(0, rect.height(), 9):
-            alpha = 8 if (y // 9) % 2 else 16
-            painter.setPen(QColor(255, 255, 255, alpha))
-            painter.drawLine(0, y, rect.width(), y)
+        """Preserve the existing install callback without visual side effects."""
 
 
 class ShimmerProgressBar(QWidget):
@@ -266,7 +198,7 @@ class TitleBar(QWidget):
         layout.setSpacing(8)
 
         icon = QLabel()
-        icon_path = bundled_asset("unlock-white.ico")
+        icon_path = bundled_asset("unlock-mask.ico")
         if icon_path.exists():
             icon.setPixmap(QIcon(str(icon_path)).pixmap(18, 18))
         title = QLabel(f"{APP_NAME} bootstrap installer")
@@ -317,11 +249,13 @@ class InstallerWindow(QMainWindow):
 
     def _build_window(self) -> None:
         self.setWindowTitle(f"{APP_NAME} installer")
-        icon_path = bundled_asset("unlock-white.ico")
+        icon_path = bundled_asset("unlock-mask.ico")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setMinimumSize(920, 600)
-        self.resize(960, 620)
+        # The option rows keep their full hit area instead of being compressed
+        # into each other on a short window.
+        self.setMinimumSize(850, 670)
+        self.resize(920, 690)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -359,14 +293,21 @@ class InstallerWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
 
-        self.hero = AnimatedBackdrop()
-        self.hero.setObjectName("hero")
+        self.hero = MinimalBackdrop()
 
         overlay = QVBoxLayout(self.hero)
         overlay.setContentsMargins(28, 26, 28, 26)
         overlay.setSpacing(12)
 
-        badge = QLabel("UNLOCK")
+        logo = QLabel()
+        logo.setObjectName("heroLogo")
+        icon_path = bundled_asset("unlock-mask.ico")
+        if icon_path.exists():
+            logo.setPixmap(QIcon(str(icon_path)).pixmap(72, 72))
+        logo.setFixedHeight(78)
+        overlay.addWidget(logo)
+
+        badge = QLabel("UNLOCK FOR WINDOWS")
         badge.setObjectName("heroBadge")
         badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         overlay.addWidget(badge)
@@ -377,7 +318,7 @@ class InstallerWindow(QMainWindow):
         title.setFont(QFont("Bahnschrift SemiBold", 24))
         overlay.addWidget(title)
 
-        subtitle = QLabel("Quick, secure installation for Windows.")
+        subtitle = QLabel("A simple setup for your network tools.")
         subtitle.setWordWrap(True)
         subtitle.setObjectName("heroSubtitle")
         overlay.addWidget(subtitle)
@@ -395,8 +336,8 @@ class InstallerWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("rightPanel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(32, 32, 32, 28)
-        layout.setSpacing(18)
+        layout.setContentsMargins(24, 24, 24, 22)
+        layout.setSpacing(10)
 
         self.status_title = QLabel("Install Unlock")
         self.status_title.setObjectName("statusTitle")
@@ -425,7 +366,7 @@ class InstallerWindow(QMainWindow):
         options = QWidget()
         options_layout = QVBoxLayout(options)
         options_layout.setContentsMargins(0, 0, 0, 0)
-        options_layout.setSpacing(4)
+        options_layout.setSpacing(8)
         options_title = QLabel("Options")
         options_title.setObjectName("sectionTitle")
         options_layout.addWidget(options_title)
@@ -497,7 +438,7 @@ class InstallerWindow(QMainWindow):
         row = QWidget()
         row.setObjectName("optionRow")
         row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        row.setMinimumHeight(38)
+        row.setFixedHeight(40)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         box = QCheckBox(title)
@@ -528,13 +469,15 @@ class InstallerWindow(QMainWindow):
             }
             #hero {
                 border-radius: 12px;
-                border: none;
+                border: 1px solid #242424;
+                background: #101010;
             }
             #heroBadge {
                 color: #f5f5f2;
-                background: #181818;
-                border: 1px solid #555550;
-                border-radius: 4px;
+                color: #7ee7f1;
+                background: transparent;
+                border: none;
+                border-radius: 0;
                 font-size: 11px;
                 font-weight: 700;
                 padding: 6px 10px;
@@ -560,6 +503,9 @@ class InstallerWindow(QMainWindow):
                 color: #7b7b77;
                 font-size: 12px;
             }
+            #heroLogo {
+                background: transparent;
+            }
             #rightPanel {
                 background: transparent;
             }
@@ -571,7 +517,7 @@ class InstallerWindow(QMainWindow):
             #titleButton {
                 background: transparent;
                 border: none;
-                border-radius: 4px;
+                border-radius: 8px;
                 color: rgba(255,255,255,0.75);
                 font-size: 14px;
                 font-weight: 600;
@@ -604,7 +550,7 @@ class InstallerWindow(QMainWindow):
             #pathEdit {
                 background: #0a0a0a;
                 border: 1px solid #3a3a38;
-                border-radius: 4px;
+                border-radius: 8px;
                 padding: 0 14px;
                 min-height: 46px;
                 color: white;
@@ -614,16 +560,17 @@ class InstallerWindow(QMainWindow):
                 border-color: #f5f5f2;
             }
             QPushButton {
-                background: #161616;
-                border: 1px solid #393939;
-                border-radius: 4px;
+                background: #171717;
+                border: 1px solid #363636;
+                border-radius: 8px;
                 color: white;
                 min-height: 46px;
                 padding: 0 18px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background: #242424;
+                background: #232323;
+                border-color: #575757;
             }
             QPushButton:disabled {
                 color: #747470;
@@ -631,42 +578,45 @@ class InstallerWindow(QMainWindow):
                 background: #101010;
             }
             #primaryButton {
-                background: #f5f5f2;
-                color: #0a0a0a;
-                border: 1px solid #f5f5f2;
+                background: #79dfe9;
+                color: #071113;
+                border: 1px solid #79dfe9;
                 padding: 13px 22px;
                 font-weight: 800;
             }
             #primaryButton:hover {
-                background: white;
+                background: #a4f4fb;
+                border-color: #a4f4fb;
             }
             #secondaryButton {
-                min-width: 110px;
+                min-width: 118px;
             }
             #optionRow {
-                background: transparent;
-                border: none;
+                background: #111111;
+                border: 1px solid #292929;
+                border-radius: 8px;
             }
             QCheckBox {
-                spacing: 10px;
-                color: #d0d0cb;
-                font-size: 12px;
+                spacing: 12px;
+                color: #dfdfda;
+                font-size: 13px;
                 font-weight: 500;
-                min-height: 24px;
+                min-height: 26px;
+                padding: 7px 10px;
             }
             QCheckBox::indicator {
-                width: 20px;
-                height: 20px;
+                width: 18px;
+                height: 18px;
             }
             QCheckBox::indicator:unchecked {
-                border-radius: 3px;
-                border: 1px solid #5b5b57;
-                background: #111111;
+                border-radius: 5px;
+                border: 1px solid #62625d;
+                background: #0a0a0a;
             }
             QCheckBox::indicator:checked {
-                border-radius: 3px;
-                border: 1px solid #f5f5f2;
-                background: #f5f5f2;
+                border-radius: 5px;
+                border: 1px solid #79dfe9;
+                background: #79dfe9;
             }
             #progressValue {
                 color: #f5f5f2;

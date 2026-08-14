@@ -1,4 +1,4 @@
-"""Obsidian Terminal identity: the selected anonymous-mask mark."""
+"""Shared transparent application mark for the window, taskbar and tray."""
 
 from __future__ import annotations
 
@@ -42,9 +42,9 @@ def make_icon(color: str, size: int = 64) -> QIcon:
 
 @lru_cache(maxsize=1)
 def app_icon() -> QIcon:
-    """The selected mask is used consistently in window, tray and taskbar."""
+    """Use the same transparent mark in the window, taskbar and tray."""
     # Windows renders window/tray marks at small sizes. Loading the dedicated
-    # ICO avoids decoding the 4K master PNG while the first UI frame is built.
+    # transparent ICO avoids decoding the 4K master PNG on the first UI frame.
     mask = BASE_DIR / "assets" / "unlock-mask.ico"
     if mask.exists():
         return QIcon(str(mask))
@@ -53,8 +53,7 @@ def app_icon() -> QIcon:
 
 def app_mark_pixmap(color: str, size: int) -> QPixmap:
     """The app mark recoloured as a single solid foreground, with no backdrop."""
-    # The selected artwork includes its own black canvas, which intentionally
-    # blends into the sidebar rather than being converted into a white square.
+    # The selected artwork has no canvas, so it works on light and dark chrome.
     if (BASE_DIR / "assets" / "unlock-mask.png").exists():
         return app_icon().pixmap(size, size)
     pixmap = app_icon().pixmap(size, size)
