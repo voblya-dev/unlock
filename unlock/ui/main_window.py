@@ -39,6 +39,7 @@ from .evolution_dialog import EvolutionDialog
 from .i18n import tr
 from .lighthouse_scene import LighthouseScene
 from .seascape import SeascapePage
+from .sites_tab import SitesTab
 from .split_tunnel_tab import SplitTunnelTab
 from .vpn_tab import VpnTab
 from .widgets import ColorSwatchPicker, ClippedPanel, ClippedStackedWidget, ElidedLabel, GamepadGlyph, MetricGlyph, NavButton, NoScrollComboBox, SignalGraph, Switch
@@ -347,6 +348,7 @@ class MainWindow(QWidget):
             ("home",   "ГЛАВНАЯ"),
             ("shield", "VPN"),
             ("split",  "МАРШРУТЫ"),
+            ("list",   tr("Lists")),
             ("gear",   "НАСТРОЙКИ"),
             ("list",   "ЖУРНАЛ"),
         ]
@@ -417,8 +419,10 @@ class MainWindow(QWidget):
         self._pages.addWidget(self._vpn_tab)                # 1
         self._split_tab = SplitTunnelTab(self._controller.split_tunnel)
         self._pages.addWidget(self._split_tab)              # 2
-        self._pages.addWidget(self._build_settings_tab())   # 3
-        self._pages.addWidget(self._build_logs_tab())       # 4
+        self._sites_tab = SitesTab(self._controller)
+        self._pages.addWidget(self._sites_tab)               # 3
+        self._pages.addWidget(self._build_settings_tab())   # 4
+        self._pages.addWidget(self._build_logs_tab())       # 5
 
     def _rebuild_tabs(self) -> None:
         """Recreate every page so freshly translated labels take effect."""
@@ -436,7 +440,7 @@ class MainWindow(QWidget):
         self._log_view.setPlainText(history)
         self._pages.setCurrentIndex(current)
         # Re-sync nav button labels after language change
-        nav_labels = ["ГЛАВНАЯ", "VPN", "МАРШРУТЫ", "НАСТРОЙКИ", "ЖУРНАЛ"]
+        nav_labels = ["ГЛАВНАЯ", "VPN", "МАРШРУТЫ", tr("Lists"), "НАСТРОЙКИ", "ЖУРНАЛ"]
         for btn, label in zip(self._nav_buttons, nav_labels):
             btn.setText(label)
         self._load_settings_into_ui()
@@ -1316,6 +1320,7 @@ class MainWindow(QWidget):
         self._apply_state(self._controller.state)
         self._vpn_tab.restyle()
         self._split_tab.restyle()
+        self._sites_tab.restyle()
         self._power.restyle()
         self._game_glyph.update()
         # Nav buttons paint icons using theme colours — force a repaint.

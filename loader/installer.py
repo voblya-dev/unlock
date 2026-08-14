@@ -59,6 +59,7 @@ class ReleaseManifest:
     entry_exe: str = f"{APP_NAME}.exe"
     release_notes: str = ""
     min_loader_version: str = "1.0.0"
+    publisher: str = ""
 
     @classmethod
     def from_dict(cls, payload: dict) -> "ReleaseManifest":
@@ -71,6 +72,7 @@ class ReleaseManifest:
             entry_exe=str(payload.get("entry_exe") or f"{APP_NAME}.exe"),
             release_notes=str(payload.get("release_notes") or ""),
             min_loader_version=str(payload.get("min_loader_version") or "1.0.0"),
+            publisher=str(payload.get("publisher") or "").strip(),
         )
 
     def as_dict(self) -> dict:
@@ -83,6 +85,7 @@ class ReleaseManifest:
             "entry_exe": self.entry_exe,
             "release_notes": self.release_notes,
             "min_loader_version": self.min_loader_version,
+            "publisher": self.publisher,
         }
 
 
@@ -131,6 +134,63 @@ def _sha256(path: Path, cancel: threading.Event | None = None) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _authenticode_signature(path: Path) -> tuple[str, str]:
+    """Return (status, signer subject) without interpolating a Windows path."""
+    encoded_path = json.dumps(str(path))
+    script = (
+        "$env:PSModulePath = $env:WINDIR + '\\System32\\WindowsPowerShell\\v1.0\\Modules;' "
+        "+ $env:ProgramFiles + '\\WindowsPowerShell\\Modules'; "
+        "$p = " + encoded_path + "; "
+        "$s = Get-AuthenticodeSignature -LiteralPath $p; "
+        "$s | Select-Object "
+        "@{N='StatusText';E={[string]$_.Status}}, "
+        "@{N='SubjectText';E={if ($_.SignerCertificate) {[string]$_.SignerCertificate.Subject} else {''}}} "
+        "| ConvertTo-Json -Compress"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        creationflags=0x08000000,
+        check=False,
+    )
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        raise RuntimeError(detail or "Windows could not verify the file signature")
+    response = json.loads(result.stdout)
+    return str(response.get("StatusText", "UnknownError")), str(response.get("SubjectText", ""))
+
+
+def _verify_payload_signatures(root: Path, publisher: str, log: LogCallback) -> None:
+    """Reject a package not signed by the release publisher before deployment.
+
+    The driver keeps its own kernel-mode signature.  It is checked for validity
+    but is intentionally not expected to share the application's publisher.
+    """
+    if os.name != "nt":
+        return
+    if not publisher:
+        raise RuntimeError("Release manifest has no required code-signing publisher.")
+
+    files = sorted(
+        path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in {".exe", ".dll", ".sys"}
+    )
+    if not files:
+        raise RuntimeError("Release package contains no executable files to verify.")
+    for path in files:
+        try:
+            status, subject = _authenticode_signature(path)
+        except Exception as exc:
+            raise RuntimeError(f"Could not verify signature for {path.name}: {exc}") from exc
+        if status != "Valid":
+            raise RuntimeError(f"Signature for {path.name} is not valid ({status}).")
+        if path.suffix.lower() != ".sys" and publisher not in subject:
+            raise RuntimeError(
+                f"Signature for {path.name} is not from the expected publisher ({publisher})."
+            )
+    log(f"Integrity: verified Authenticode signatures for {len(files)} executable files")
 
 
 def _load_local_manifest(path: Path) -> ReleaseManifest | None:
@@ -507,6 +567,11 @@ def install_release(
         _download_stream(manifest.package_url, package, progress, cancel)
 
         set_stage(1, tr("Verifying package"), tr("Checking integrity before install"))
+        if manifest.package_size and package.stat().st_size != manifest.package_size:
+            raise RuntimeError(
+                tr("Package size check failed. Expected %s bytes, got %s.")
+                % (manifest.package_size, package.stat().st_size)
+            )
         progress(0, tr("Computing SHA-256"))
         actual_sha = _sha256(package, cancel)
         if manifest.package_sha256 and actual_sha != manifest.package_sha256:
@@ -532,6 +597,7 @@ def install_release(
                 tr("Archive payload is missing %s")
                 % f"{manifest.package_root}/{manifest.entry_exe}"
             )
+        _verify_payload_signatures(payload_root, manifest.publisher, log)
 
         options.install_dir.parent.mkdir(parents=True, exist_ok=True)
         progress(55, tr("Deploying files"))

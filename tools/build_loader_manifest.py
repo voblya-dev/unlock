@@ -62,6 +62,11 @@ def main() -> int:
         default="1.0.0",
         help="Minimum loader version accepted by this manifest.",
     )
+    parser.add_argument(
+        "--publisher",
+        default="",
+        help="Authenticode publisher expected for packaged .exe and .dll files.",
+    )
     args = parser.parse_args()
 
     zip_path = Path(args.zip_path).resolve()
@@ -80,6 +85,7 @@ def main() -> int:
         "entry_exe": args.entry_exe,
         "release_notes": args.notes,
         "min_loader_version": args.min_loader_version,
+        "publisher": args.publisher.strip(),
     }
 
     output = Path(args.manifest_out).resolve()

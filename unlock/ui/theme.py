@@ -177,6 +177,28 @@ QPushButton#heroSecondary:hover {{ background: {g['HOVER']}; border-color: {g['T
 #statClock {{ font-size: 17px; font-weight: 650; }}
 #statRule {{ background: {g['CARD_BORDER']}; border: none; }}
 
+/* Site/IP manager */
+#sitesTitle {{ color: {g['TEXT']}; font-size: 25px; font-weight: 700; letter-spacing: .15px; }}
+#aiSwitchBox {{ background: {g['CARD']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 10px; color: {g['TEXT_MUTED']}; font-size: 11px; font-weight: 650; }}
+#siteRuleCard {{ background: {g['BG_ELEVATED']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 10px; }}
+#siteRuleCard:hover {{ background: {g['HOVER']}; border-color: {g['TEXT_MUTED']}; }}
+QPushButton#siteSelect {{ background: transparent; border: 1px solid {g['TEXT_FAINT']}; border-radius: 7px; color: transparent; padding: 0; font-size: 13px; }}
+QPushButton#siteSelect:hover {{ background: {g['HOVER']}; border-color: {g['TEXT_MUTED']}; }}
+QPushButton#siteSelect:checked {{ background: {g['ACCENT']}; border-color: {g['ACCENT']}; color: {g['ON_ACCENT']}; }}
+#siteTypeIcon {{ background: {g['CARD']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 9px; color: {g['ACCENT']}; font-size: 17px; }}
+#siteValue {{ color: {g['TEXT']}; font-size: 14px; font-weight: 650; }}
+#siteBadge {{ background: {g['TRACK']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 6px; color: {g['TEXT_MUTED']}; font-size: 9px; font-weight: 700; padding: 2px 6px; }}
+#siteState {{ color: {g['TEXT_FAINT']}; font-size: 10px; font-weight: 650; }}
+QPushButton#siteMenu {{ background: transparent; border: none; color: {g['TEXT_MUTED']}; padding: 0; font-size: 14px; }}
+QPushButton#siteMenu:hover {{ background: {g['HOVER']}; color: {g['TEXT']}; }}
+#siteEmpty {{ background: {g['BG_ELEVATED']}; border: 1px dashed {g['CARD_BORDER']}; border-radius: 10px; }}
+#siteEmptyTitle {{ color: {g['TEXT']}; font-size: 15px; font-weight: 700; }}
+#hostMappingRow {{ background: {g['BG_ELEVATED']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 8px; }}
+#hostAddress {{ color: {g['TEXT_MUTED']}; font-family: "Cascadia Mono", "Consolas"; font-size: 12px; }}
+#hostsWarning {{ color: {g['WARNING']}; background: {g['BG_ELEVATED']}; border-left: 2px solid {g['WARNING']}; border-radius: 5px; padding: 8px 10px; font-size: 11px; }}
+#dialogTitle {{ color: {g['TEXT']}; font-size: 18px; font-weight: 700; }}
+#sitesNotice {{ color: {g['TEXT']}; background: {g['BG_ELEVATED']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 8px; padding: 8px 11px; font-size: 11px; }}
+
 QPushButton {{ background: {g['CARD']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 9px; padding: 8px 14px; color: {g['TEXT']}; font-weight: 600; }}
 QPushButton:hover {{ background: {g['HOVER']}; border-color: {g['TEXT_MUTED']}; }}
 QPushButton:pressed {{ background: {g['PRESSED']}; }}

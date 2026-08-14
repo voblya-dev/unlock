@@ -247,4 +247,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # The hosts helper is deliberately a tiny, explicit elevated operation.
+    # It skips the GUI, single-instance socket and ordinary startup entirely.
+    if len(sys.argv) == 3 and sys.argv[1] == "--unlock-hosts":
+        from unlock.host_overrides import run_helper
+        sys.exit(run_helper(sys.argv[2]))
     sys.exit(main())

@@ -34,6 +34,7 @@ from .awg_engine import AwgEngine
 from .vpn_links import Profile
 from . import telegram_client
 from .split_tunnel import SplitTunnelingManager
+from .site_lists import SiteListManager
 
 log = get_logger("controller")
 
@@ -94,7 +95,9 @@ class DpiRestartWorker(QThread):
             self._c._restart_dpi_blocking()
             self.finished_ok.emit(self._c.active_summary())
         except (DpiEngineError, RuntimeError) as exc:
-            self._c._stop_engines()
+            # A list edit must never tear down the independent Telegram proxy
+            # (or the VPN).  Only the winws process was restarted here.
+            self._c.dpi.stop()
             self.failed.emit(str(exc))
 
 
@@ -394,6 +397,9 @@ class Controller(QObject):
         self.config = Config()
         sounds.set_enabled(self.config.get("sounds", True))
         self.split_tunnel = SplitTunnelingManager(self.config)
+        # Site rules have an independent, unencrypted file because they are
+        # consumed by winws directly and must survive application updates.
+        self.site_lists = SiteListManager()
         self.dpi = DpiEngine()
         self.telegram = TelegramProxy(TELEGRAM_PROXY_PORT)
         self.vpn = VpnEngine()
@@ -532,18 +538,30 @@ class Controller(QObject):
             return False
         return True
 
-    def restart_dpi(self) -> None:
-        """Re-launch winws so a changed argument vector takes effect."""
+    def restart_dpi(self, *, success_message: str | None = None) -> None:
+        """Re-launch only winws so a changed argument vector takes effect."""
         if not self.dpi.running:
             return
         self._set_state(State.CONNECTING)
         self.status_message.emit("Applying the new filter…")
 
         worker = DpiRestartWorker(self)
-        worker.finished_ok.connect(self._on_connected)
+        if success_message is None:
+            worker.finished_ok.connect(self._on_connected)
+        else:
+            worker.finished_ok.connect(
+                lambda summary: self._on_dpi_restarted(summary, success_message)
+            )
         worker.failed.connect(self._on_connect_failed)
         self._track(worker)
         worker.start()
+
+    def apply_site_lists(self) -> None:
+        """Apply a saved site-list edit without disturbing VPN or Telegram."""
+        if self.dpi.running:
+            self.restart_dpi(success_message="DPI restarted — changes applied")
+        else:
+            self.status_message.emit("List saved — applies at next bypass start")
 
     def _restart_dpi_blocking(self) -> None:
         self.dpi.stop()
@@ -1035,6 +1053,12 @@ class Controller(QObject):
         self.status_message.emit(f"Active — {summary}")
         self._start_latency_monitor()
         _sound_connected()
+
+    def _on_dpi_restarted(self, _summary: str, message: str) -> None:
+        """Finish a targeted restart without announcing a whole reconnect."""
+        self._set_state(State.ACTIVE)
+        self.status_message.emit(message)
+        self._start_latency_monitor()
 
     def _on_connect_failed(self, message: str) -> None:
         # Left in ERROR rather than bounced back to IDLE: the two transitions used

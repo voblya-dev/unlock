@@ -368,6 +368,81 @@ _RU: dict[str, str] = {
     "Changes take effect after reconnecting the VPN.":
         "Раздельное туннелирование работает только в режиме TUN. "
         "Изменения применяются после переподключения VPN.",
+    # --- site / IP lists
+    "Lists": "СПИСКИ",
+    "Sites and IP": "Сайты и IP",
+    "Manage addresses that go through the DPI bypass":
+        "Управляйте адресами, которые проходят через обход DPI",
+    "AI sites": "AI-сайты",
+    "Add AI websites through DPI bypass": "Добавить AI-сайты через обход DPI",
+    "Search sites or IPs": "Поиск сайтов или IP",
+    "All types": "Все типы",
+    "Domain": "Домен",
+    "Subnet": "Подсеть",
+    "Import": "Импорт",
+    "Refresh AI sites": "Обновить AI-сайты",
+    "Delete selected": "Удалить выбранные",
+    "Enable all": "Включить все",
+    "Disable all": "Выключить все",
+    "No rules yet": "Правил пока нет",
+    "Add a site, IP address or subnet to include it in the DPI bypass.":
+        "Добавьте сайт, IP-адрес или подсеть, чтобы включить их в обход DPI.",
+    "Add first rule": "Добавить первую запись",
+    "Included": "В обходе",
+    "Disabled": "Выключено",
+    "Include this rule in the DPI bypass": "Включить это правило в обход DPI",
+    "User": "Пользователь",
+    "Delete": "Удалить",
+    "Add addresses": "Добавить адреса",
+    "Add sites, IPs or subnets": "Добавить сайты, IP или подсети",
+    "One value per line. Domains, wildcard domains, IPv4/IPv6 and CIDR "
+    "subnets are accepted. Empty lines and # comments are ignored.":
+        "По одному значению в строке. Поддерживаются домены, wildcard-домены, "
+        "IPv4/IPv6 и подсети CIDR. Пустые строки и комментарии с # игнорируются.",
+    "Import list": "Импорт списка",
+    "Text files (*.txt);;All files (*)": "Текстовые файлы (*.txt);;Все файлы (*)",
+    "Remove AI sites": "Удалить AI-сайты",
+    "AI-site entries are managed as a group. Remove %d selected entry(s)?":
+        "AI-сайты управляются как группа. Удалить выбранные записи: %d?",
+    "Rule added": "Правило добавлено",
+    "List imported: %d rules": "Импортировано правил: %d",
+    "AI sites list updated": "Список AI-сайтов обновлён",
+    "AI sites updated": "AI-сайты обновлены",
+    "List saved": "Список сохранён",
+    "No valid new rules": "Нет новых корректных правил",
+    "Rules already exist": "Такие правила уже есть",
+    "Hosts override (experimental)": "Переопределение hosts (экспериментально)",
+    "Manual domain → IP mappings. This is separate from normal DPI bypass rules.":
+        "Ручные сопоставления «домен → IP». Это отдельный режим, не обычные правила обхода DPI.",
+    "Experimental: applying this changes the Windows hosts file and asks for UAC "
+    "administrator confirmation. Antivirus software may react. It is not needed "
+    "for ordinary zapret site rules.":
+        "Экспериментально: применение меняет системный файл hosts и запрашивает "
+        "подтверждение UAC. Антивирус может отреагировать. Для обычных правил zapret это не нужно.",
+    "Add mapping": "Добавить сопоставление",
+    "Apply hosts changes": "Применить изменения hosts",
+    "No hosts mappings. Add one only when a service explicitly gives you an IP.":
+        "Сопоставлений hosts нет. Добавляйте их только если сервис явно дал IP-адрес.",
+    "Add hosts override": "Добавить переопределение hosts",
+    "Map one concrete domain to an IPv4 or IPv6 address.":
+        "Сопоставьте один конкретный домен с IPv4- или IPv6-адресом.",
+    "Save mapping": "Сохранить сопоставление",
+    "Enter a valid domain and IP address": "Введите корректные домен и IP-адрес",
+    "Hosts mapping saved": "Сопоставление hosts сохранено",
+    "Add a hosts mapping first": "Сначала добавьте сопоставление hosts",
+    "apply": "применить",
+    "remove": "удалить",
+    "To %s hosts overrides, Unlock will request UAC administrator rights and edit "
+    "the system hosts file only between its own markers. Antivirus software may react. "
+    "This is not required for ordinary zapret site rules. Continue?":
+        "Чтобы %s переопределения hosts, Unlock запросит права администратора через UAC "
+        "и изменит системный файл hosts только внутри собственных маркеров. Антивирус может "
+        "отреагировать. Для обычных правил zapret это не нужно. Продолжить?",
+    "UAC confirmation requested — hosts change will apply shortly":
+        "Запрошено подтверждение UAC — изменение hosts скоро применится",
+    "DPI restarted — changes applied": "DPI перезапущен, изменения применены",
+    "List saved — applies at next bypass start":
+        "Список сохранён — применится при следующем запуске обхода",
 }
 
 _CATALOGUES = {EN: {}, RU: _RU}

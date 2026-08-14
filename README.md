@@ -4,7 +4,7 @@
   <img src="assets/unlock-readme.png" alt="Unlock">
 </p>
 
-**Unlock 1.0.9** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
+**Unlock 1.1.0** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
 
 > Unlock предназначен только для законного использования. Работа обхода зависит от провайдера, сети и региона; приложение не гарантирует доступность какого-либо отдельного сервиса.
 
@@ -18,18 +18,20 @@
 | Telegram | Локальный MTProto WebSocket-мост, `tg://`-ссылка, передача настройки в Telegram Desktop и опциональный Fake TLS. |
 | VPN | Импорт и запуск VLESS, VMess, Trojan, Shadowsocks, Hysteria2, WireGuard и AmneziaWG. |
 | TUN | Маршрутизация приложений, UDP, игр и QUIC через виртуальный адаптер, когда системного прокси недостаточно. |
-| Интерфейс | Home, VPN, Settings и Logs; трей, русский/английский язык, темы, акцентный цвет и управление запуском. |
+| Списки | Отдельный менеджер доменов, IP и CIDR-подсетей для zapret, встроенный режим «AI-сайты» и экспериментальные hosts-сопоставления. |
+| Интерфейс | Home, VPN, Маршруты, Списки, Settings и Logs; трей, русский/английский язык, темы, акцентный цвет и управление запуском. |
 
 ## Установка
 
 ### Рекомендуемый способ
 
 1. Откройте [Releases](https://github.com/voblya-dev/unlock/releases/latest) и скачайте `UnlockSetup.exe`.
+   У опубликованного установщика в свойствах Windows, на вкладке «Цифровые подписи», должен быть действительный подписант разработчика. Не запускайте файл, если подписи нет или она недействительна.
 2. Запустите установщик и оставьте или измените папку установки.
 3. Отметьте нужные пункты: ярлык на рабочем столе, ярлык в меню «Пуск», запуск при входе и запуск после установки.
 4. Нажмите **Install**.
 
-Установщик скачивает актуальный `Unlock.zip` из GitHub Release, проверяет SHA-256 из манифеста и затем создаёт ярлыки. Ему не нужны права администратора для копирования файлов; права запрашиваются самим Unlock только при включении компонентов, которым они требуются.
+Установщик скачивает актуальный `Unlock.zip` из GitHub Release, проверяет размер и SHA-256 из встроенного манифеста, затем проверяет цифровые подписи всех исполняемых файлов перед копированием и создаёт ярлыки. Ему не нужны права администратора для копирования файлов; права запрашиваются самим Unlock только при включении компонентов, которым они требуются.
 
 ### Обновление, переустановка и удаление
 
@@ -68,6 +70,18 @@ Telegram-мост может работать самостоятельно. Дл
 - Отображение переданных и полученных данных.
 
 Поддерживаемые ссылки: `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `wg://`/WireGuard и конфигурации AmneziaWG. Подписки принимаются по HTTPS и ограничиваются по размеру.
+
+### Списки
+
+Вкладка **Списки** управляет адресами, которые должны попасть в обход DPI. Через кнопку **Добавить** можно вставить несколько строк сразу, а через **Импорт** — загрузить `.txt`. Поддерживаются домены (`example.com`, `*.example.com`), IPv4/IPv6 и CIDR-подсети (`1.2.3.0/24`). Пустые строки и любые строки с `#` пропускаются; некорректные значения и дубликаты не сохраняются.
+
+Активные домены записываются в пользовательский hostlist, а IP и подсети — в пользовательский ipset. Unlock добавляет их к встроенным спискам выбранной стратегии и никогда не редактирует `bin/zapret/lists`. После изменения работающий `winws` перезапускается автоматически; VPN, Telegram-прокси и само приложение не перезапускаются. Если обход DPI выключен, список просто будет применён при следующем его запуске.
+
+Переключатель **AI-сайты** добавляет готовый набор доменов OpenAI, Claude, Gemini, Copilot и Perplexity как отдельные записи с источником «AI-сайты». Отключение удаляет из активного списка только эти управляемые записи, не затрагивая добавленные пользователем. Кнопка **Обновить AI-сайты** сейчас обновляет встроенный набор; формат хранилища допускает будущую проверяемую HTTPS-подписку.
+
+#### Переопределение hosts (экспериментально)
+
+Этот режим отличается от обычного обхода DPI: он меняет системный файл Windows `hosts` и вручную сопоставляет конкретный домен с IP. Для его применения требуется отдельное подтверждение UAC; антивирус может отреагировать. Для добавления сайтов в zapret он не нужен. Перед первым применением Unlock создаёт резервную копию, а затем меняет только блок между `# Unlock hosts BEGIN` и `# Unlock hosts END`; отключение удаляет только этот блок и не затрагивает другие строки hosts.
 
 ### Settings
 
@@ -120,6 +134,9 @@ Benchmark проверяет доступность Discord, YouTube, Google и 
 | VPN TUN | `172.19.0.1/30`, MTU `1400` |
 | Настройки | `%APPDATA%\Unlock\config.json` |
 | VPN-профили | `%APPDATA%\Unlock\vpn-config.json` |
+| Менеджер сайтов и hosts-сопоставления | `%APPDATA%\Unlock\sites.json` |
+| Пользовательские списки zapret | `%APPDATA%\Unlock\zapret-lists\unlock-hostlist.txt`, `%APPDATA%\Unlock\zapret-lists\unlock-ipset.txt` |
+| Резервная копия hosts | `%APPDATA%\Unlock\hosts.unlock.backup` |
 | Логи | `%APPDATA%\Unlock\logs\unlock.log` |
 | Эволюционные стратегии | `%APPDATA%\Unlock\evolved-strategies.json` |
 
@@ -130,7 +147,8 @@ Benchmark проверяет доступность Discord, YouTube, Google и 
 - WinDivert и TUN требуют Administrator rights.
 - Приложение допускает только один запущенный экземпляр.
 - При аварийном завершении Unlock пытается восстановить системный прокси и остановить оставшийся VPN-интерфейс.
-- Установщик проверяет контрольную сумму пакета, если она указана в манифесте релиза.
+- Установщик проверяет размер, контрольную сумму и Authenticode-подписи пакета до установки.
+- Каждый релиз собирается в GitHub Actions, подписывается Azure Artifact Signing и получает проверяемую GitHub provenance-аттестацию. Хеши лежат в `SHA256SUMS.txt`.
 - Встроенные бинарники поставляются вместе с нужными лицензиями; лицензия `tg-ws-proxy` находится в `unlock/tgwsproxy/LICENSE`.
 
 ## Запуск из исходников
@@ -173,16 +191,19 @@ py -m PyInstaller unlock.spec --noconfirm
 Перед созданием тега синхронизируйте версию в `unlock/constants.py`, `loader/config.py` и `loader/__init__.py`, затем проверьте её:
 
 ```powershell
-py -B tools/check_release_version.py --tag v1.0.9
+py -B tools/check_release_version.py --tag v1.1.0
 ```
 
 GitHub Actions по тегу `v*`:
 
 1. собирает `Unlock`;
-2. упаковывает `Unlock.zip`;
-3. создаёт `loader_manifest.json` с SHA-256 и URL пакета;
-4. собирает `UnlockSetup.exe`;
-5. публикует `Unlock.zip`, `loader_manifest.json`, `UnlockSetup.exe` и `SHA256SUMS.txt` в GitHub Release.
+2. подписывает каждый `.exe` и `.dll` Azure Artifact Signing и проверяет все подписи (драйвер сохраняет свою действительную kernel-mode подпись);
+3. упаковывает `Unlock.zip`;
+4. создаёт `loader_manifest.json` с SHA-256, размером, URL и ожидаемым издателем пакета;
+5. собирает и подписывает `UnlockSetup.exe`;
+6. публикует `Unlock.zip`, `loader_manifest.json`, `UnlockSetup.exe` и `SHA256SUMS.txt` в GitHub Release, а для ZIP и установщика — provenance-аттестации.
+
+Перед первым защищённым выпуском создайте Azure Artifact Signing account с проверенным publisher identity, назначьте GitHub OIDC-federated credential для Environment `release` и роли `Artifact Signing Certificate Profile Signer`, затем задайте GitHub Actions secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_ARTIFACT_SIGNING_ENDPOINT`, `AZURE_ARTIFACT_SIGNING_ACCOUNT`, `AZURE_ARTIFACT_SIGNING_PROFILE` и repository variable `CODE_SIGNING_PUBLISHER` (точная часть Subject сертификата, например `O=Your Company`). Workflow использует короткоживущий OIDC-токен, поэтому не хранит приватный ключ или секрет сертификата. Без этих настроек он намеренно завершится ошибкой и не выпустит неподписанный файл. Для новых срабатываний Defender отправляйте именно подписанный релиз как ложное срабатывание через [Microsoft Security Intelligence](https://www.microsoft.com/wdsi/filesubmission); ссылка на релиз и SHA-256 из `SHA256SUMS.txt` позволяют службе проверить конкретный образец.
 
 Для локальной сборки релизных артефактов:
 
@@ -191,8 +212,9 @@ py -m PyInstaller unlock.spec --noconfirm
 py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
 py -B tools/build_unlock_setup.py `
   --zip dist/Unlock.zip `
-  --version 1.0.9 `
-  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.0.9/Unlock.zip
+  --version 1.1.0 `
+  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.1.0/Unlock.zip `
+  --publisher "O=Your Company"
 ```
 
 ## Проверка проекта

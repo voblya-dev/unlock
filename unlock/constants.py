@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.1.0"
 
 # ---------------------------------------------------------------- paths
 
@@ -47,6 +47,15 @@ ZAPRET_DIR = BIN_DIR / "zapret"
 WINWS_EXE = ZAPRET_DIR / "winws.exe"
 LISTS_DIR = ZAPRET_DIR / "lists"
 CONFIGS_DIR = ZAPRET_DIR / "configs"
+
+# Per-user zapret extensions.  ``bin/zapret`` is a bundled, potentially
+# read-only PyInstaller resource, so user-managed lists must never be stored
+# there.  These files are appended to the parsed preset arguments at runtime.
+ZAPRET_USER_LISTS_DIR = DATA_DIR / "zapret-lists"
+ZAPRET_USER_HOSTLIST_PATH = ZAPRET_USER_LISTS_DIR / "unlock-hostlist.txt"
+ZAPRET_USER_IPSET_PATH = ZAPRET_USER_LISTS_DIR / "unlock-ipset.txt"
+SITE_LISTS_PATH = DATA_DIR / "sites.json"
+HOSTS_BACKUP_PATH = DATA_DIR / "hosts.unlock.backup"
 
 # VPN engines are bundled with the signed application. Do not search a
 # per-user writable directory from this elevated process.

@@ -1,2 +1,2 @@
 # Never leave this file empty
-domain.example.abc
+# Test set: commonly restricted platforms in Russia and their required delivery domains.

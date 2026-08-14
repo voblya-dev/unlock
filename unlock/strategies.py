@@ -28,7 +28,14 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-from .constants import CONFIGS_DIR, DATA_DIR, LISTS_DIR, ZAPRET_DIR
+from .constants import (
+    CONFIGS_DIR,
+    DATA_DIR,
+    LISTS_DIR,
+    ZAPRET_DIR,
+    ZAPRET_USER_HOSTLIST_PATH,
+    ZAPRET_USER_IPSET_PATH,
+)
 from .logger import get_logger
 
 log = get_logger("strategies")
@@ -107,8 +114,24 @@ def load_raw_configs() -> tuple[tuple[str, tuple[str, ...]], ...]:
 
 
 def expand_args(args, game_filter: bool = False) -> list[str]:
-    """Resolve %BIN%/%LISTS%/%GameFilter*% in a raw token vector."""
-    return [_expand(a, game_filter) for a in args]
+    """Resolve preset placeholders and attach the per-user zapret lists.
+
+    The packed ``general*.bat`` files already contain the maintained zapret
+    hostlists/ipsets.  Adding our own list alongside every matching filter
+    preserves their strategy-specific desync settings while extending the
+    matched traffic; the bundled files themselves remain untouched.
+    """
+    expanded = [_expand(a, game_filter) for a in args]
+    result: list[str] = []
+    hostlist = f"--hostlist={ZAPRET_USER_HOSTLIST_PATH}"
+    ipset = f"--ipset={ZAPRET_USER_IPSET_PATH}"
+    for token in expanded:
+        result.append(token)
+        if token.startswith("--hostlist="):
+            result.append(hostlist)
+        elif token.startswith("--ipset="):
+            result.append(ipset)
+    return result
 
 
 @lru_cache(maxsize=2)

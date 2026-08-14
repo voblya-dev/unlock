@@ -35,6 +35,11 @@ def main() -> int:
         default="dist/loader_manifest.json",
         help="Where to write the manifest before building the installer",
     )
+    parser.add_argument(
+        "--publisher",
+        required=True,
+        help="Authenticode publisher expected for the packaged application files",
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent
@@ -56,6 +61,8 @@ def main() -> int:
         args.notes,
         "--min-loader-version",
         args.min_loader_version,
+        "--publisher",
+        args.publisher,
     ]
     subprocess.run(manifest_cmd, cwd=root, check=True)
     subprocess.run(["py", "-m", "PyInstaller", "unlock_loader.spec", "--noconfirm"], cwd=root, check=True)

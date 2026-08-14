@@ -13,10 +13,13 @@ on:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 jobs:
   build-and-release:
     runs-on: windows-latest
+    environment: release
 
     env:
       PYTHONUTF8: "1"
@@ -66,6 +69,36 @@ jobs:
         shell: pwsh
         run: py -m PyInstaller unlock.spec --noconfirm
 
+      # OIDC issues a short-lived GitHub token for Azure; no code-signing
+      # private key or long-lived client secret is stored in this repository.
+      - name: Authenticate to Azure Artifact Signing
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Never publish a release that Windows cannot attribute to the verified
+      # publisher.  The Artifact Signing identity and publisher name are kept
+      # outside the repository in GitHub secrets/variables.
+      - name: Sign application executables
+        uses: Azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist\Unlock
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify signed application payload
+        shell: pwsh
+        run: |
+          py -B tools/verify_authenticode.py dist\Unlock --publisher "${{ vars.CODE_SIGNING_PUBLISHER }}"
+
       - name: Package Unlock.zip
         shell: pwsh
         run: py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
@@ -75,7 +108,24 @@ jobs:
         run: |
           $version = $env:RELEASE_TAG.Substring(1)
           $packageUrl = "https://github.com/${{ github.repository }}/releases/download/$env:RELEASE_TAG/Unlock.zip"
-          py -B tools/build_unlock_setup.py --zip dist/Unlock.zip --version $version --package-url $packageUrl
+          py -B tools/build_unlock_setup.py --zip dist/Unlock.zip --version $version --package-url $packageUrl --publisher "${{ vars.CODE_SIGNING_PUBLISHER }}"
+
+      - name: Sign bootstrap installer
+        uses: Azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist
+          files-folder-filter: UnlockSetup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify every shipped executable
+        shell: pwsh
+        run: |
+          py -B tools/verify_authenticode.py dist\Unlock dist\UnlockSetup.exe --publisher "${{ vars.CODE_SIGNING_PUBLISHER }}"
 
       - name: Write checksums
         shell: pwsh
@@ -91,6 +141,16 @@ jobs:
             "$hash  $name"
           }
           Set-Content -LiteralPath "dist\SHA256SUMS.txt" -Value $lines -Encoding ascii
+
+      - name: Attest release package provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/Unlock.zip
+
+      - name: Attest installer provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/UnlockSetup.exe
 
       - name: Publish GitHub release
         shell: pwsh
