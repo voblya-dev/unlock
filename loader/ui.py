@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .config import APP_NAME, APP_VERSION, DEFAULT_INSTALL_DIR, bundled_asset
+from .i18n import tr
 from .installer import InstallOptions, InstallerThread, UninstallerThread
 
 
@@ -277,7 +278,7 @@ class TitleBar(QWidget):
         icon_path = bundled_asset("unlock-mask.ico")
         if icon_path.exists():
             icon.setPixmap(QIcon(str(icon_path)).pixmap(18, 18))
-        title = QLabel(f"{APP_NAME} bootstrap installer")
+        title = QLabel(tr("Unlock bootstrap installer"))
         title.setObjectName("titleBarText")
         layout.addWidget(icon)
         layout.addWidget(title)
@@ -325,7 +326,7 @@ class InstallerWindow(QMainWindow):
         self._wire_intro()
 
     def _build_window(self) -> None:
-        self.setWindowTitle(f"{APP_NAME} installer")
+        self.setWindowTitle(tr("Unlock installer"))
         icon_path = bundled_asset("unlock-mask.ico")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -378,18 +379,18 @@ class InstallerWindow(QMainWindow):
         overlay.setSpacing(12)
         overlay.addStretch(1)
 
-        badge = QLabel("UNLOCK FOR WINDOWS")
+        badge = QLabel(tr("UNLOCK FOR WINDOWS"))
         badge.setObjectName("heroBadge")
         badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         overlay.addWidget(badge)
 
-        title = QLabel("Install\nUnlock")
+        title = QLabel(tr("Install\nUnlock"))
         title.setWordWrap(True)
         title.setObjectName("heroTitle")
         title.setFont(QFont("Bahnschrift SemiBold", 24))
         overlay.addWidget(title)
 
-        subtitle = QLabel("A simple setup for your network tools.")
+        subtitle = QLabel(tr("A simple setup for your network tools."))
         subtitle.setWordWrap(True)
         subtitle.setObjectName("heroSubtitle")
         overlay.addWidget(subtitle)
@@ -410,16 +411,16 @@ class InstallerWindow(QMainWindow):
         layout.setContentsMargins(24, 24, 24, 22)
         layout.setSpacing(10)
 
-        self.status_title = QLabel("Install Unlock")
+        self.status_title = QLabel(tr("Install Unlock"))
         self.status_title.setObjectName("statusTitle")
-        self.status_detail = QLabel(f"Version {APP_VERSION}")
+        self.status_detail = QLabel(tr("Version %s") % APP_VERSION)
         self.status_detail.setWordWrap(True)
         self.status_detail.setObjectName("statusDetail")
         layout.addWidget(self.status_title)
         layout.addWidget(self.status_detail)
         layout.addSpacing(8)
 
-        path_title = QLabel("Install location")
+        path_title = QLabel(tr("Install location"))
         path_title.setObjectName("sectionTitle")
         path_row = QWidget()
         path_row_layout = QHBoxLayout(path_row)
@@ -427,7 +428,7 @@ class InstallerWindow(QMainWindow):
         path_row_layout.setSpacing(10)
         self.path_edit = QLineEdit(str(DEFAULT_INSTALL_DIR))
         self.path_edit.setObjectName("pathEdit")
-        self.browse_btn = QPushButton("Browse")
+        self.browse_btn = QPushButton(tr("Browse"))
         self.browse_btn.clicked.connect(self._browse_install_dir)
         path_row_layout.addWidget(self.path_edit, 1)
         path_row_layout.addWidget(self.browse_btn)
@@ -439,23 +440,23 @@ class InstallerWindow(QMainWindow):
         options_layout = QVBoxLayout(options)
         options_layout.setContentsMargins(0, 0, 0, 0)
         options_layout.setSpacing(8)
-        options_title = QLabel("Options")
+        options_title = QLabel(tr("Options"))
         options_title.setObjectName("sectionTitle")
         options_layout.addWidget(options_title)
         self.desktop_row, self.desktop_box = self._option_box(
-            "Create a desktop shortcut",
+            tr("Create a desktop shortcut"),
             checked=True,
         )
         self.start_menu_row, self.start_menu_box = self._option_box(
-            "Add a Start Menu shortcut",
+            tr("Add a Start Menu shortcut"),
             checked=True,
         )
         self.logon_row, self.logon_box = self._option_box(
-            "Launch Unlock when you sign in",
+            tr("Launch Unlock when you sign in"),
             checked=False,
         )
         self.run_row, self.run_box = self._option_box(
-            "Launch Unlock after install",
+            tr("Launch Unlock after install"),
             checked=True,
         )
         for row in (self.desktop_row, self.start_menu_row, self.logon_row, self.run_row):
@@ -476,7 +477,7 @@ class InstallerWindow(QMainWindow):
         self.progress_label.setObjectName("progressValue")
         progress_top_layout.addWidget(self.progress_bar, 1)
         progress_top_layout.addWidget(self.progress_label)
-        self.progress_note = QLabel("Ready to install")
+        self.progress_note = QLabel(tr("Ready to install"))
         self.progress_note.setObjectName("sectionHint")
         progress_layout.addWidget(progress_top)
         progress_layout.addWidget(self.progress_note)
@@ -487,13 +488,13 @@ class InstallerWindow(QMainWindow):
         buttons_layout = QHBoxLayout(buttons)
         buttons_layout.setContentsMargins(0, 0, 0, 0)
         buttons_layout.setSpacing(10)
-        self.secondary_btn = QPushButton("Cancel")
+        self.secondary_btn = QPushButton(tr("Cancel"))
         self.secondary_btn.setObjectName("secondaryButton")
         self.secondary_btn.clicked.connect(self._on_secondary_clicked)
-        self.primary_btn = QPushButton("Install")
+        self.primary_btn = QPushButton(tr("Install"))
         self.primary_btn.setObjectName("primaryButton")
         self.primary_btn.clicked.connect(self._start_install)
-        self.remove_btn = QPushButton("Remove")
+        self.remove_btn = QPushButton(tr("Remove"))
         self.remove_btn.setObjectName("dangerButton")
         self.remove_btn.clicked.connect(self._start_remove)
         # All actions share the available row width.  A fixed minimum width
@@ -690,7 +691,7 @@ class InstallerWindow(QMainWindow):
     def _browse_install_dir(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self,
-            "Select install folder",
+            tr("Select install folder"),
             self.path_edit.text() or str(DEFAULT_INSTALL_DIR),
         )
         if selected:
@@ -739,7 +740,7 @@ class InstallerWindow(QMainWindow):
         if self._state.running:
             return
         installed = self._has_existing_install()
-        self.primary_btn.setText("Reinstall latest" if installed else "Install")
+        self.primary_btn.setText(tr("Reinstall latest") if installed else tr("Install"))
         self.remove_btn.setEnabled(installed)
 
     def _set_running(self, running: bool) -> None:
@@ -758,25 +759,24 @@ class InstallerWindow(QMainWindow):
             widget.setEnabled(not running)
         self.secondary_btn.setEnabled(True)
         if running:
-            self.secondary_btn.setText("Cancel")
-            self.primary_btn.setText("Removing…" if self._operation == "remove" else "Installing…")
+            self.secondary_btn.setText(tr("Cancel"))
+            self.primary_btn.setText(tr("Removing…") if self._operation == "remove" else tr("Installing…"))
             if self._operation == "remove":
                 self.secondary_btn.setEnabled(False)
         else:
-            self.secondary_btn.setText("Cancel")
+            self.secondary_btn.setText(tr("Cancel"))
             self._refresh_install_actions()
 
     def _start_install(self) -> None:
         install_dir = self.path_edit.text().strip()
         if not install_dir:
-            QMessageBox.warning(self, "Choose a folder", "Choose an install folder first.")
+            QMessageBox.warning(self, tr("Choose a folder"), tr("Choose an install folder first."))
             return
         if self._has_existing_install():
             reply = QMessageBox.question(
                 self,
-                "Reinstall latest Unlock",
-                "The latest available release will replace the current app files. "
-                "Your settings and VPN profiles will be kept. Continue?",
+                tr("Reinstall latest Unlock"),
+                tr("The latest available release will replace the current app files. Your settings and VPN profiles will be kept. Continue?"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
             )
@@ -798,14 +798,13 @@ class InstallerWindow(QMainWindow):
     def _start_remove(self) -> None:
         install_dir = self.path_edit.text().strip()
         if not install_dir or not self._has_existing_install():
-            QMessageBox.information(self, "Unlock is not installed", "No Unlock installation was found in this folder.")
+            QMessageBox.information(self, tr("Unlock is not installed"), tr("No Unlock installation was found in this folder."))
             self._refresh_install_actions()
             return
         reply = QMessageBox.warning(
             self,
-            "Remove Unlock",
-            "Remove Unlock, its shortcuts and its startup entry?\n\n"
-            "Your settings, VPN profiles and logs will be kept.",
+            tr("Remove Unlock"),
+            tr("Remove Unlock, its shortcuts and its startup entry?\n\nYour settings, VPN profiles and logs will be kept."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -825,56 +824,56 @@ class InstallerWindow(QMainWindow):
         self._state.done = True
         self._operation = None
         self._set_running(False)
-        self.status_title.setText("Unlock is installed")
-        self.status_detail.setText("You can close the installer.")
-        self.progress_note.setText("Installation complete")
+        self.status_title.setText(tr("Unlock is installed"))
+        self.status_detail.setText(tr("You can close the installer."))
+        self.progress_note.setText(tr("Installation complete"))
         self.primary_btn.setEnabled(False)
-        self.secondary_btn.setText("Close")
+        self.secondary_btn.setText(tr("Close"))
         self._log(f"Installer: complete -> {exe_path}")
 
     def _install_failed(self, message: str) -> None:
         self._state.done = False
         self._operation = None
         self._set_running(False)
-        self.status_title.setText("Installation failed")
+        self.status_title.setText(tr("Installation failed"))
         self.status_detail.setText(message)
-        self.progress_note.setText("Fix the problem and try again")
+        self.progress_note.setText(tr("Fix the problem and try again"))
         self._log(f"Installer: failed -> {message}")
-        QMessageBox.critical(self, "Installation failed", message)
+        QMessageBox.critical(self, tr("Installation failed"), message)
 
     def _install_cancelled(self) -> None:
         self._state.done = False
         self._operation = None
         self._set_running(False)
-        self.status_title.setText("Installation cancelled")
-        self.status_detail.setText("Change the options and start again when ready.")
-        self.progress_note.setText("Cancelled")
+        self.status_title.setText(tr("Installation cancelled"))
+        self.status_detail.setText(tr("Change the options and start again when ready."))
+        self.progress_note.setText(tr("Cancelled"))
         self._log("Installer: cancelled")
 
     def _uninstall_succeeded(self, install_dir: str) -> None:
         self._state.done = True
         self._operation = None
         self._set_running(False)
-        self.status_title.setText("Unlock was removed")
-        self.status_detail.setText("Your settings and VPN profiles were kept.")
-        self.progress_note.setText("Removal complete")
+        self.status_title.setText(tr("Unlock was removed"))
+        self.status_detail.setText(tr("Your settings and VPN profiles were kept."))
+        self.progress_note.setText(tr("Removal complete"))
         self._log(f"Uninstaller: complete -> {install_dir}")
 
     def _uninstall_failed(self, message: str) -> None:
         self._state.done = False
         self._operation = None
         self._set_running(False)
-        self.status_title.setText("Removal failed")
+        self.status_title.setText(tr("Removal failed"))
         self.status_detail.setText(message)
-        self.progress_note.setText("Close Unlock and try again")
+        self.progress_note.setText(tr("Close Unlock and try again"))
         self._log(f"Uninstaller: failed -> {message}")
-        QMessageBox.critical(self, "Removal failed", message)
+        QMessageBox.critical(self, tr("Removal failed"), message)
 
     def _on_secondary_clicked(self) -> None:
         if self._state.running and isinstance(self._thread, InstallerThread):
             self._thread.cancel()
             self.secondary_btn.setEnabled(False)
-            self.secondary_btn.setText("Cancelling…")
+            self.secondary_btn.setText(tr("Cancelling…"))
             self._log("Installer: cancel requested")
             return
         self.close()
@@ -883,8 +882,8 @@ class InstallerWindow(QMainWindow):
         if self._state.running:
             QMessageBox.information(
                 self,
-                "Installation in progress",
-                "Cancel the installation first or wait for it to finish.",
+                tr("Installation in progress"),
+                tr("Cancel the installation first or wait for it to finish."),
             )
             event.ignore()
             return

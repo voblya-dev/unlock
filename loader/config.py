@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 GITHUB_REPO = "voblya-dev/unlock"
 DEFAULT_MANIFEST_URL = (
     f"https://github.com/{GITHUB_REPO}/releases/latest/download/loader_manifest.json"

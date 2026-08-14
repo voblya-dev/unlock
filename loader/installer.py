@@ -21,6 +21,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from requests import RequestException
 
 from . import LOADER_VERSION
+from .i18n import tr
 from .config import (
     APP_NAME,
     APP_VERSION,
@@ -230,7 +231,7 @@ def _download_stream(
             if response is not None and response.status_code:
                 status = f" (HTTP {response.status_code})"
             raise RuntimeError(f"Download failed for {source}{status}") from exc
-        progress(100, "Package downloaded")
+        progress(100, tr("Package downloaded"))
         return
 
     source_path = Path(source)
@@ -246,7 +247,7 @@ def _download_stream(
             dst.write(chunk)
             copied += len(chunk)
             progress(int(copied * 100 / total) if total else 0, _format_bytes(copied, total))
-    progress(100, "Package staged")
+    progress(100, tr("Package staged"))
 
 
 def _format_bytes(done: int, total: int) -> str:
@@ -450,25 +451,25 @@ def install_release(
         package = scratch / "Unlock.zip"
         unpack_root = scratch / "unpacked"
 
-        set_stage(0, "Downloading release package", manifest.release_notes or manifest.version)
+        set_stage(0, tr("Downloading release package"), manifest.release_notes or manifest.version)
         _download_stream(manifest.package_url, package, progress, cancel)
 
-        set_stage(1, "Verifying package", "Checking integrity before install")
-        progress(0, "Computing SHA-256")
+        set_stage(1, tr("Verifying package"), tr("Checking integrity before install"))
+        progress(0, tr("Computing SHA-256"))
         actual_sha = _sha256(package, cancel)
         if manifest.package_sha256 and actual_sha != manifest.package_sha256:
             raise RuntimeError(
-                "Integrity check failed. "
-                f"Expected {manifest.package_sha256}, got {actual_sha}."
+                tr("Integrity check failed. Expected %s, got %s.")
+                % (manifest.package_sha256, actual_sha)
             )
         if manifest.package_sha256:
             log(f"Integrity: sha256 {actual_sha}")
         else:
             log("Integrity: manifest did not provide a sha256, skipped strict check")
-        progress(100, "Package verified")
+        progress(100, tr("Package verified"))
 
-        set_stage(2, "Installing Unlock", f"Target: {options.install_dir}")
-        progress(5, "Preparing folders")
+        set_stage(2, tr("Installing Unlock"), f"{tr('Target')}: {options.install_dir}")
+        progress(5, tr("Preparing folders"))
         unpack_root.mkdir(parents=True, exist_ok=True)
         _safe_extract(package, unpack_root, cancel)
 
@@ -476,11 +477,12 @@ def install_release(
         entry_exe = payload_root / manifest.entry_exe
         if not entry_exe.exists():
             raise RuntimeError(
-                f"Archive payload is missing {manifest.package_root}/{manifest.entry_exe}"
+                tr("Archive payload is missing %s")
+                % f"{manifest.package_root}/{manifest.entry_exe}"
             )
 
         options.install_dir.parent.mkdir(parents=True, exist_ok=True)
-        progress(55, "Deploying files")
+        progress(55, tr("Deploying files"))
         _replace_tree(payload_root, options.install_dir)
 
         installed_exe = options.install_dir / manifest.entry_exe
@@ -490,7 +492,7 @@ def install_release(
         icon_path = options.install_dir / "assets" / "unlock-mask.ico"
         if not icon_path.exists():
             icon_path = installed_exe
-        progress(72, "Creating shortcuts")
+        progress(72, tr("Creating shortcuts"))
         if options.desktop_shortcut:
             _best_effort(
                 log,
@@ -510,7 +512,7 @@ def install_release(
         else:
             _remove_path(START_MENU_LINK)
 
-        progress(88, "Configuring startup")
+        progress(88, tr("Configuring startup"))
         _best_effort(
             log,
             "autostart",
@@ -521,8 +523,8 @@ def install_release(
         else:
             log("Autostart: disabled")
 
-        set_stage(3, "Finishing up", "Installation complete")
-        progress(100, "Ready")
+        set_stage(3, tr("Finishing up"), tr("Installation complete"))
+        progress(100, tr("Ready"))
         if options.launch_after_install:
             _launch_installed_exe(installed_exe)
             log(f"Launch: started {installed_exe}")
@@ -542,16 +544,16 @@ def uninstall_release(
     # Do not let a typo turn the remove action into a generic folder deleter.
     # Only a directory that contains the expected installed executable qualifies.
     if not exe_path.is_file():
-        raise RuntimeError(f"No {APP_NAME} installation was found in {target}.")
+        raise RuntimeError(tr("No %s installation was found in %s.") % (APP_NAME, target))
 
-    set_stage(0, "Removing Unlock", "Removing shortcuts and startup entry")
-    progress(15, "Removing shortcuts")
+    set_stage(0, tr("Removing Unlock"), tr("Removing shortcuts and startup entry"))
+    progress(15, tr("Removing shortcuts"))
     _remove_path(DESKTOP_LINK)
     _remove_path(START_MENU_LINK)
     _set_autostart(False, exe_path)
 
-    set_stage(1, "Removing Unlock", f"Deleting {target}")
-    progress(55, "Removing application files")
+    set_stage(1, tr("Removing Unlock"), f"{tr('Deleting')} {target}")
+    progress(55, tr("Removing application files"))
     try:
         shutil.rmtree(target)
     except OSError as exc:
@@ -560,9 +562,9 @@ def uninstall_release(
             f"Details: {exc}"
         ) from exc
     if target.exists():
-        raise RuntimeError("Could not remove all Unlock files. Close Unlock and try again.")
+        raise RuntimeError(tr("Could not remove all Unlock files. Close Unlock and try again."))
 
-    progress(100, "Unlock removed")
+    progress(100, tr("Unlock removed"))
     log(f"Uninstall: removed {target}")
     return target
 
