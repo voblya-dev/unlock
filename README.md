@@ -4,7 +4,7 @@
   <img src="assets/unlock-readme.png" alt="Unlock">
 </p>
 
-**Unlock 1.1.7** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
+**Unlock 1.1.8** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно устанавливается обычным пакетом Windows Installer (`.msi`) без загрузчика, скриптов запуска или фоновых задач.
 
 > Unlock предназначен только для законного использования. Работа обхода зависит от провайдера, сети и региона; приложение не гарантирует доступность какого-либо отдельного сервиса.
 
@@ -24,19 +24,18 @@
 
 ### Рекомендуемый способ
 
-1. Откройте [Releases](https://github.com/voblya-dev/unlock/releases/latest) и скачайте `UnlockSetup.exe`.
+1. Откройте [Releases](https://github.com/voblya-dev/unlock/releases/latest) и скачайте `UnlockInstaller.msi`.
    Если у опубликованного установщика есть вкладка «Цифровые подписи», убедитесь, что подписант действителен. Для неподписанного релиза сверяйте SHA-256 из `SHA256SUMS.txt`.
-2. Запустите установщик и оставьте или измените папку установки.
-3. Отметьте нужные пункты: ярлык на рабочем столе, ярлык в меню «Пуск», запуск при входе и запуск после установки.
-4. Нажмите **Install**.
+2. Запустите MSI и пройдите стандартные окна Windows Installer.
+3. После завершения откройте Unlock из меню «Пуск».
 
-Установщик скачивает актуальный `Unlock.zip` из GitHub Release, проверяет размер и SHA-256 из встроенного манифеста, а при наличии ожидаемого издателя — цифровые подписи исполняемых файлов перед копированием. Ему не нужны права администратора для копирования файлов; права запрашиваются самим Unlock только при включении компонентов, которым они требуются.
+MSI не запускает Python-загрузчик, PowerShell, командные сценарии или приложение после установки. Он только устанавливает проверенный комплект в `%LOCALAPPDATA%\Unlock`; права запрашиваются самим Unlock лишь при включении компонентов, которым они требуются.
 
 ### Обновление, переустановка и удаление
 
-Если в выбранной папке уже найден `Unlock.exe`, основная кнопка установщика становится **Reinstall latest**. Она скачивает последнюю версию из Release и заменяет только файлы приложения; настройки, VPN-профили и логи сохраняются.
+MSI выполняет обновление поверх прежней версии. Для удаления используйте «Установленные приложения» Windows; настройки, VPN-профили и логи в `%APPDATA%\Unlock` намеренно сохраняются.
 
-Кнопка **Remove** удаляет файлы Unlock из выбранной папки, ярлыки и запись автозапуска. Перед удалением установщик показывает подтверждение. Данные в `%APPDATA%\Unlock` намеренно не удаляются, чтобы профиль можно было использовать после повторной установки.
+Старый `UnlockSetup.exe` больше не является способом установки и не публикуется.
 
 ### Если нужен архив
 
@@ -115,7 +114,7 @@ Unlock
         +-- AmneziaWG + Wintun: полноценный TUN с UDP
 ```
 
-Компоненты независимы: можно использовать только Telegram, только VPN или DPI bypass без VPN. DPI-стратегии запускаются из `bin/zapret/configs/general*.bat`; Unlock извлекает аргументы `winws.exe` и применяет их без изменения исходных preset-файлов.
+Компоненты независимы: можно использовать только Telegram, только VPN или DPI bypass без VPN. DPI-стратегии выпускаются как JSON-представление проверенных аргументов zapret; в скачиваемом пакете нет `.bat`, `.cmd` или PowerShell-сценариев.
 
 ### Game mode
 
@@ -123,7 +122,7 @@ Unlock
 
 ### Benchmark
 
-Benchmark проверяет доступность Discord, YouTube, Google и Cloudflare, TLS handshake и задержку TCP, после чего выбирает один из неизменённых пресетов `general*.bat` комплектной сборки zapret.
+Benchmark проверяет доступность Discord, YouTube, Google и Cloudflare, TLS handshake и задержку TCP, после чего выбирает один из комплектных пресетов zapret.
 
 ## Локальные адреса и данные
 
@@ -202,17 +201,16 @@ py -m PyInstaller unlock.spec --noconfirm
 затем проверьте её:
 
 ```powershell
-py -B tools/check_release_version.py --tag v1.1.7
+py -B tools/check_release_version.py --tag v1.1.8
 ```
 
 GitHub Actions по тегу `v*`:
 
 1. собирает `Unlock`;
 2. подписывает каждый `.exe` и `.dll` Azure Artifact Signing и проверяет все подписи (драйвер сохраняет свою действительную kernel-mode подпись);
-3. упаковывает `Unlock.zip`;
-4. создаёт `loader_manifest.json` с SHA-256, размером, URL и ожидаемым издателем пакета;
-5. собирает и подписывает `UnlockSetup.exe`;
-6. публикует `Unlock.zip`, `loader_manifest.json`, `UnlockSetup.exe` и `SHA256SUMS.txt` в GitHub Release, а для ZIP и установщика — provenance-аттестации.
+3. создаёт `Unlock.zip` без командных сценариев;
+4. собирает стандартный `UnlockInstaller.msi` без custom actions;
+5. публикует `Unlock.zip`, `UnlockInstaller.msi` и `SHA256SUMS.txt` в GitHub Release, а для ZIP и установщика — provenance-аттестации.
 
 Для выпуска создайте Azure Artifact Signing account с проверенным publisher
 identity, назначьте GitHub OIDC-federated credential для Environment `release`
@@ -232,11 +230,9 @@ Actions secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`,
 ```powershell
 py -m PyInstaller unlock.spec --noconfirm
 py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
-py -B tools/build_unlock_setup.py `
-  --zip dist/Unlock.zip `
-  --version 1.1.7 `
-  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.1.7/Unlock.zip `
-  --publisher "O=Your Company"
+dotnet tool install --tool-path .wix wix
+$env:Path = "$PWD\.wix;$env:Path"
+py -B tools/build_msi.py --input dist/Unlock --version 1.1.8 --output dist/UnlockInstaller.msi
 ```
 
 ## Проверка проекта

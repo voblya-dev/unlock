@@ -61,6 +61,12 @@ jobs:
           py -m pip install --upgrade pip
           py -m pip install -r requirements.txt pyinstaller
 
+      - name: Install WiX toolset
+        shell: pwsh
+        run: |
+          dotnet tool install --tool-path .wix wix
+          "${{ github.workspace }}\.wix" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
       - name: Validate version against tag
         shell: pwsh
         run: py -B tools/check_release_version.py --tag "$env:RELEASE_TAG"
@@ -130,15 +136,13 @@ jobs:
         shell: pwsh
         run: py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
 
-      - name: Build bootstrap installer
+      - name: Build standard MSI installer
         shell: pwsh
         run: |
           $version = $env:RELEASE_TAG.Substring(1)
-          $packageUrl = "https://github.com/${{ github.repository }}/releases/download/$env:RELEASE_TAG/Unlock.zip"
-          $publisherArgs = if ($env:RELEASE_PUBLISHER) { @("--publisher", $env:RELEASE_PUBLISHER) } else { @() }
-          py -B tools/build_unlock_setup.py --zip dist/Unlock.zip --version $version --package-url $packageUrl @publisherArgs
+          py -B tools/build_msi.py --input dist/Unlock --version $version --output dist/UnlockInstaller.msi
 
-      - name: Sign bootstrap installer
+      - name: Sign MSI installer
         if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: Azure/artifact-signing-action@v2
         with:
@@ -146,7 +150,7 @@ jobs:
           signing-account-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
           files-folder: ${{ github.workspace }}\dist
-          files-folder-filter: UnlockSetup.exe
+          files-folder-filter: UnlockInstaller.msi
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -155,15 +159,18 @@ jobs:
         if: ${{ env.SIGNING_ENABLED == 'true' }}
         shell: pwsh
         run: |
-          py -B tools/verify_authenticode.py dist\Unlock dist\UnlockSetup.exe --publisher "$env:RELEASE_PUBLISHER"
+          py -B tools/verify_authenticode.py dist\Unlock --publisher "$env:RELEASE_PUBLISHER"
+          $signature = Get-AuthenticodeSignature -LiteralPath dist\UnlockInstaller.msi
+          if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate.Subject.Contains($env:RELEASE_PUBLISHER)) {
+            throw "MSI signature verification failed: $($signature.Status) $($signature.SignerCertificate.Subject)"
+          }
 
       - name: Write checksums
         shell: pwsh
         run: |
           $assets = @(
             "dist\Unlock.zip",
-            "dist\loader_manifest.json",
-            "dist\UnlockSetup.exe"
+            "dist\UnlockInstaller.msi"
           )
           $lines = foreach ($path in $assets) {
             $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -180,7 +187,7 @@ jobs:
       - name: Attest installer provenance
         uses: actions/attest@v4
         with:
-          subject-path: dist/UnlockSetup.exe
+          subject-path: dist/UnlockInstaller.msi
 
       - name: Publish GitHub release
         shell: pwsh
@@ -189,8 +196,7 @@ jobs:
         run: |
           $assets = @(
             "dist\Unlock.zip",
-            "dist\loader_manifest.json",
-            "dist\UnlockSetup.exe",
+            "dist\UnlockInstaller.msi",
             "dist\SHA256SUMS.txt"
           )
           gh release view "$env:RELEASE_TAG" *> $null

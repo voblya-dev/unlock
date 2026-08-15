@@ -1,10 +1,12 @@
 """winws (zapret) strategy presets.
 
-DPI strategies are not hand-written here. They are read from the ``general*.bat``
-configs shipped with the zapret-discord-youtube pack under ``bin/zapret/configs``,
-so the app runs exactly the argument vectors that pack ships and tests.
+Releases contain an inert JSON representation of the upstream ``general*.bat``
+presets. Unlock has always parsed their ``winws.exe`` argument vectors rather
+than executing shell code; converting them during the build keeps the exact
+arguments without sending CMD/PowerShell scripts to users.
 
-Each .bat launches winws like this::
+An unpacked developer checkout may still read the upstream source files, whose
+launch line looks like this::
 
     start "zapret: %~n0" /min "%BIN%winws.exe" --wf-tcp=... ^
     --filter-udp=443 --hostlist="%LISTS%list-general.txt" ... --new ^
@@ -21,6 +23,7 @@ selected profile is rebuilt from a known ``general*.bat`` file.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from dataclasses import dataclass, field
@@ -44,6 +47,7 @@ log = get_logger("strategies")
 # those rules without removing them.
 GAME_FILTER_OFF = "12"
 GAME_FILTER_ON = "1024-65535"
+STRATEGY_MANIFEST = CONFIGS_DIR / "zapret-strategies.json"
 
 
 @dataclass(frozen=True)
@@ -100,13 +104,35 @@ def _sort_key(path: Path) -> tuple[int, str]:
     return (0 if name == "general" else 1, re.sub(r"\d+", lambda m: m.group().zfill(8), name))
 
 
+def _read_manifest() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Load release presets from the non-executable build manifest."""
+    try:
+        data = json.loads(STRATEGY_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ()
+    if not isinstance(data, dict) or data.get("schema") != 1:
+        return ()
+
+    configs: list[tuple[str, tuple[str, ...]]] = []
+    for item in data.get("strategies", []):
+        if not isinstance(item, dict):
+            continue
+        name, args = item.get("name"), item.get("args")
+        if isinstance(name, str) and isinstance(args, list) and all(isinstance(arg, str) for arg in args):
+            configs.append((name, tuple(args)))
+    return tuple(configs)
+
+
 @lru_cache(maxsize=1)
 def load_raw_configs() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Every general*.bat as ``(name, unexpanded tokens)``.
+    """Every shipped preset as ``(name, unexpanded tokens)``.
 
-    Placeholders stay intact until the game-mode setting and writable runtime
-    list paths are known.
+    The packaged JSON is preferred. Placeholders stay intact until the
+    game-mode setting and writable runtime list paths are known.
     """
+    packaged = _read_manifest()
+    if packaged:
+        return packaged
     if not CONFIGS_DIR.is_dir():
         return ()
 
@@ -129,11 +155,11 @@ def expand_args(args, game_filter: bool = False) -> list[str]:
 
 @lru_cache(maxsize=2)
 def load_strategies(game_filter: bool = False) -> tuple[DpiStrategy, ...]:
-    """Every general*.bat in bin/zapret/configs, as ready-to-run strategies."""
+    """Every packaged zapret preset, as ready-to-run strategies."""
     return tuple(
         DpiStrategy(
             name=name,
-            description=f"zapret pack config {name}.bat",
+            description=f"zapret pack preset {name}",
             args=expand_args(args, game_filter),
         )
         for name, args in load_raw_configs()

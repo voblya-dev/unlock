@@ -10,6 +10,8 @@ dist2/
 release_build/
 release_build_loader/
 release_dist/
+release_build*/
+release_dist*/
 .screens/
 
 *.log
