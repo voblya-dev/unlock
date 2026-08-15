@@ -29,7 +29,7 @@ def main() -> int:
         raise SystemExit(f"Unlock.exe not found in {source}")
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
+    result = subprocess.run(
         [
             wix,
             "build",
@@ -42,8 +42,17 @@ def main() -> int:
             str(output),
         ],
         cwd=root,
-        check=True,
+        text=True,
+        capture_output=True,
     )
+    if result.returncode:
+        # GitHub makes check-run annotations readable for public repositories
+        # even when raw Actions logs require a login. Preserve the actual WiX
+        # diagnostic there so a broken installer can be corrected promptly.
+        detail = (result.stdout + "\n" + result.stderr).strip()[-6000:]
+        escaped = detail.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+        print(f"::error title=MSI build failed::{escaped}")
+        return result.returncode
     print(output)
     return 0
 
