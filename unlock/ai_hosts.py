@@ -1,4 +1,4 @@
-"""The complete hosts bundle used by Zapret-GUI 2.1.1 AI mode.
+"""The complete hosts bundle used by the current Zapret-GUI AI mode.
 
 The upstream feature does not use a small hand-maintained AI allowlist.  It
 downloads the full dns.malw.link hosts file, appends the Goida-AI-Unlocker
@@ -16,7 +16,6 @@ from pathlib import Path
 import requests
 
 from .constants import AI_HOSTS_CACHE_PATH
-from .site_lists import normalize_domain
 
 
 AI_HOSTS_URL = "https://raw.githubusercontent.com/ImMALWARE/dns.malw.link/master/hosts"
@@ -37,27 +36,6 @@ AI_PROTECTED_HOSTS = frozenset({
 # incompatible old cache after an application update.
 MIN_COMPLETE_BUNDLE_ROWS = 1000
 
-AI_DOMAIN_SUFFIXES: tuple[str, ...] = (
-    "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com",
-    "anthropic.com", "claude.ai", "perplexity.ai", "grok.com", "x.ai",
-    "mistral.ai", "cohere.com", "deepseek.com", "huggingface.co", "poe.com",
-    "you.com", "pi.ai", "character.ai", "meta.ai", "elevenlabs.io",
-    "stability.ai", "midjourney.com", "runwayml.com", "leonardo.ai",
-    "ideogram.ai", "luma.ai", "fal.ai", "replicate.com", "groq.com",
-    "together.ai", "cerebras.ai", "qwen.ai", "kimi.com", "z.ai", "manus.im",
-    "lovable.dev", "v0.dev", "bolt.new", "cursor.com", "codeium.com",
-    "windsurf.com", "trae.ai", "githubcopilot.com",
-)
-AI_EXACT_DOMAINS: frozenset[str] = frozenset({
-    "gemini.google.com", "aistudio.google.com", "notebooklm.google.com",
-    "jules.google.com", "generativelanguage.googleapis.com",
-    "aisandbox-pa.googleapis.com", "webchannel-alkalimakersuite-pa.clients6.google.com",
-    "alkalimakersuite-pa.clients6.google.com", "assistant-s3-pa.googleapis.com",
-    "proactivebackend-pa.googleapis.com", "robinfrontend-pa.googleapis.com",
-    "aitestkitchen.withgoogle.com", "copilot.microsoft.com", "sydney.bing.com",
-    "edgeservices.bing.com",
-})
-
 _ADDITIONAL_VERSION_RE = re.compile(r'version_add\s*=\s*["\']([^"\']+)["\']')
 _ADDITIONAL_HOSTS_RE = re.compile(
     r"hosts_add\s*=\s*(?:r|R)?(?P<quote>\"\"\"|''')(?P<body>.*?)(?P=quote)", re.S,
@@ -71,29 +49,15 @@ class AiHostsError(RuntimeError):
 @dataclass(frozen=True)
 class AiHostsBundle:
     hosts_text: str
-    ai_domains: tuple[str, ...]
     source: str  # network or cache
     additional_version: str = ""
-
-
-def is_ai_domain(domain: str) -> bool:
-    domain = domain.lower().rstrip(".")
-    return domain in AI_EXACT_DOMAINS or any(
-        domain == suffix or domain.endswith(f".{suffix}")
-        for suffix in AI_DOMAIN_SUFFIXES
-    )
 
 
 def _line_hostnames(line: str) -> tuple[str, ...]:
     fields = line.split("#", 1)[0].split()
     if len(fields) < 2:
         return ()
-    domains = []
-    for candidate in fields[1:]:
-        domain = normalize_domain(candidate)
-        if domain and not domain.startswith("*."):
-            domains.append(domain)
-    return tuple(domains)
+    return tuple(candidate.lower().rstrip(".") for candidate in fields[1:])
 
 
 def _filter_hosts_bundle(text: str) -> str:
@@ -118,17 +82,6 @@ def _bundle_looks_useful(text: str) -> bool:
     )
 
 
-def _ai_domains_from_bundle(text: str) -> tuple[str, ...]:
-    domains: list[str] = []
-    seen: set[str] = set()
-    for line in text.splitlines():
-        for domain in _line_hostnames(line):
-            if is_ai_domain(domain) and domain not in seen:
-                seen.add(domain)
-                domains.append(domain)
-    return tuple(domains)
-
-
 def load_cached_ai_hosts(path: Path = AI_HOSTS_CACHE_PATH) -> str:
     try:
         text = _filter_hosts_bundle(path.read_text(encoding="utf-8"))
@@ -146,7 +99,7 @@ def cached_complete_ai_bundle(path: Path = AI_HOSTS_CACHE_PATH) -> AiHostsBundle
     )
     if rows < MIN_COMPLETE_BUNDLE_ROWS:
         return None
-    return AiHostsBundle(text, _ai_domains_from_bundle(text), "cache", "cached")
+    return AiHostsBundle(text, "cache", "cached")
 
 
 def _download_text(url: str, timeout: float) -> str:
@@ -167,7 +120,7 @@ def _write_cache(path: Path, text: str) -> None:
 def refresh_ai_mappings(
     *, cache_path: Path = AI_HOSTS_CACHE_PATH, timeout: float = 25.0,
 ) -> AiHostsBundle:
-    """Download and cache the same complete bundle as Zapret-GUI 2.1.1."""
+    """Download and cache the same complete bundle as current Zapret-GUI."""
     try:
         main_hosts = _download_text(AI_HOSTS_URL, timeout).strip()
         additional_hosts = ""
@@ -193,11 +146,9 @@ def refresh_ai_mappings(
         if not _bundle_looks_useful(hosts_text):
             raise AiHostsError("downloaded hosts bundle failed validation")
         _write_cache(cache_path, hosts_text)
-        return AiHostsBundle(
-            hosts_text, _ai_domains_from_bundle(hosts_text), "network", additional_version,
-        )
+        return AiHostsBundle(hosts_text, "network", additional_version)
     except (OSError, requests.RequestException, AiHostsError) as exc:
         cached = load_cached_ai_hosts(cache_path)
         if cached:
-            return AiHostsBundle(cached, _ai_domains_from_bundle(cached), "cache", "cached")
+            return AiHostsBundle(cached, "cache", "cached")
         raise AiHostsError(f"Could not obtain AI hosts bundle: {exc}") from exc

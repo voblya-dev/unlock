@@ -32,12 +32,10 @@ from PyQt6.QtWidgets import (
 from ..ai_hosts import AiHostsError, cached_complete_ai_bundle, refresh_ai_mappings
 from ..host_overrides import apply_ai_hosts, remove_ai_hosts_block, request_elevated
 from ..site_lists import (
-    AI_SITES,
     HostMapping,
-    MutationResult,
+    ListUpdateResult,
     SiteListManager,
     SiteRule,
-    SiteRuleSource,
     SiteRuleType,
 )
 from . import anim, theme
@@ -76,50 +74,48 @@ class SiteListsWorker(QThread):
             elif self._action == "disable_all":
                 result = self._manager.set_all_enabled(False)
             elif self._action == "ai_on":
+                bundle = refresh_ai_mappings()
                 try:
-                    bundle = refresh_ai_mappings()
-                    values = (*AI_SITES, *bundle.ai_domains)
-                    result = self._manager.set_ai_sites_enabled(True, values)
-                    try:
-                        apply_ai_hosts(bundle.hosts_text)
-                    except OSError:
-                        # A source run may not have the normal WinDivert UAC
-                        # elevation. The UI then requests its narrow helper.
-                        result = (result, True, bundle.source, "")
-                    else:
-                        result = (result, False, bundle.source, "")
-                except AiHostsError as exc:
-                    # The local hostlist fallback remains useful during a first
-                    # download failure, even though its hosts mapping is absent.
-                    result = (self._manager.set_ai_sites_enabled(True), False, "", str(exc))
+                    apply_ai_hosts(bundle.hosts_text)
+                except OSError:
+                    # Source runs may lack the normal application elevation.
+                    elevation_needed = True
+                else:
+                    elevation_needed = False
+                result = (
+                    self._manager.set_ai_sites_enabled(True),
+                    elevation_needed,
+                    bundle.source,
+                    "",
+                )
             elif self._action == "ai_off":
-                result = self._manager.set_ai_sites_enabled(False)
                 try:
                     remove_ai_hosts_block()
                 except OSError:
-                    result = (result, True, "", "")
+                    elevation_needed = True
+                else:
+                    elevation_needed = False
+                result = (
+                    self._manager.set_ai_sites_enabled(False),
+                    elevation_needed,
+                    "",
+                    "",
+                )
             elif self._action == "ai_refresh":
                 if not self._manager.ai_sites_enabled:
-                    result = (self._manager.refresh_ai_sites(), False, "", "")
+                    result = (ListUpdateResult(), False, "", "")
                 else:
                     try:
                         bundle = refresh_ai_mappings()
-                        values = (*AI_SITES, *bundle.ai_domains)
-                        result = self._manager.refresh_ai_sites(values)
-                        if not result.touched:
-                            result = MutationResult(changed=1)
                         try:
                             apply_ai_hosts(bundle.hosts_text)
                         except OSError:
-                            result = (result, True, bundle.source, "")
+                            result = (ListUpdateResult(changed=1), True, bundle.source, "")
                         else:
-                            result = (result, False, bundle.source, "")
+                            result = (ListUpdateResult(changed=1), False, bundle.source, "")
                     except AiHostsError as exc:
-                        # Keep the currently working AI list and hosts block
-                        # intact if neither the remote feed nor its cache can
-                        # be read; replacing it with the smaller fallback here
-                        # would make a transient outage break live services.
-                        result = (MutationResult(), False, "", str(exc))
+                        # Keep the working block intact on a transient outage.
+                        result = (ListUpdateResult(), False, "", str(exc))
             elif self._action == "ai_sync":
                 # An AI mode enabled before an app update must not keep the
                 # former short mapping cache. This mirrors Zapret-GUI's startup
@@ -128,9 +124,9 @@ class SiteListsWorker(QThread):
                 try:
                     apply_ai_hosts(bundle.hosts_text)
                 except OSError:
-                    result = (MutationResult(changed=1), True, bundle.source, "")
+                    result = (ListUpdateResult(changed=1), True, bundle.source, "")
                 else:
-                    result = (MutationResult(changed=1), False, bundle.source, "")
+                    result = (ListUpdateResult(changed=1), False, bundle.source, "")
             else:
                 raise ValueError(f"Unknown site-list operation: {self._action}")
             self.completed.emit(self._action, result)
@@ -207,7 +203,7 @@ class AddHostMappingDialog(QDialog):
 class SiteRuleCard(QFrame):
     selected_changed = pyqtSignal(str, bool)
     enabled_changed = pyqtSignal(str, bool)
-    delete_requested = pyqtSignal(str, bool)  # value, is AI-managed
+    delete_requested = pyqtSignal(str)
 
     _TYPE_ICON = {
         SiteRuleType.DOMAIN: "◎",
@@ -249,7 +245,7 @@ class SiteRuleCard(QFrame):
             SiteRuleType.IP: "IP",
             SiteRuleType.SUBNET: tr("Subnet"),
         }[rule.type]))
-        badges.addWidget(self._badge(tr("AI sites") if rule.source is SiteRuleSource.AI else tr("User")))
+        badges.addWidget(self._badge(tr("User")))
         badges.addStretch(1)
         content.addLayout(badges)
         row.addLayout(content, 1)
@@ -282,7 +278,7 @@ class SiteRuleCard(QFrame):
         remove = menu.addAction(tr("Delete"))
         chosen = menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
         if chosen is remove:
-            self.delete_requested.emit(self.rule.value, self.rule.source is SiteRuleSource.AI)
+            self.delete_requested.emit(self.rule.value)
 
     def set_selected(self, selected: bool) -> None:
         self._selected.blockSignals(True)
@@ -317,7 +313,7 @@ class HostMappingRow(QFrame):
 
 
 class SitesTab(SeascapePage):
-    """Modern list manager with search, source-aware rules and hosts opt-in."""
+    """Modern list manager with search, AI hosts mode and hosts opt-in."""
 
     def __init__(self, controller, parent=None) -> None:
         super().__init__(parent)
@@ -358,7 +354,7 @@ class SitesTab(SeascapePage):
         self.reload()
         anim.stagger_in([self._list_card, self._hosts_card])
         if self._manager.ai_sites_enabled:
-            self._run_mutation("ai_sync")
+            self._run_action("ai_sync")
 
     # ------------------------------------------------------------- layout
 
@@ -383,7 +379,7 @@ class SitesTab(SeascapePage):
         ai_row.setSpacing(8)
         ai_row.addWidget(QLabel(tr("AI services")))
         self._ai_switch = Switch()
-        self._ai_switch.setToolTip(tr("Enable AI services through DPI bypass and hosts mappings"))
+        self._ai_switch.setToolTip(tr("Enable AI services with Zapret-GUI-compatible hosts mappings"))
         self._ai_switch.toggled.connect(self._on_ai_toggled)
         ai_row.addWidget(self._ai_switch)
         row.addWidget(ai_box, 0, Qt.AlignmentFlag.AlignTop)
@@ -421,17 +417,17 @@ class SitesTab(SeascapePage):
         imported.clicked.connect(self._import_file)
         actions.addWidget(imported)
         refresh_ai = QPushButton(tr("Update AI services"))
-        refresh_ai.clicked.connect(lambda: self._run_mutation("ai_refresh"))
+        refresh_ai.clicked.connect(lambda: self._run_action("ai_refresh"))
         actions.addWidget(refresh_ai)
         self._delete_selected = QPushButton(tr("Delete selected"))
         self._delete_selected.clicked.connect(self._delete_selection)
         actions.addWidget(self._delete_selected)
         actions.addStretch(1)
         enable = QPushButton(tr("Enable all"))
-        enable.clicked.connect(lambda: self._run_mutation("enable_all"))
+        enable.clicked.connect(lambda: self._run_action("enable_all"))
         actions.addWidget(enable)
         disable = QPushButton(tr("Disable all"))
-        disable.clicked.connect(lambda: self._run_mutation("disable_all"))
+        disable.clicked.connect(lambda: self._run_action("disable_all"))
         actions.addWidget(disable)
         layout.addLayout(actions)
 
@@ -554,42 +550,25 @@ class SitesTab(SeascapePage):
         self._delete_selected.setEnabled(bool(self._selected) and self._worker is None)
 
     def _on_enabled_changed(self, value: str, enabled: bool) -> None:
-        self._run_mutation("enable" if enabled else "disable", [value])
+        self._run_action("enable" if enabled else "disable", [value])
 
-    def _on_delete_requested(self, value: str, is_ai: bool) -> None:
-        if is_ai and not self._confirm_ai_delete(1):
-            return
-        self._run_mutation("remove", [value])
+    def _on_delete_requested(self, value: str) -> None:
+        self._run_action("remove", [value])
 
     def _open_add_dialog(self) -> None:
         dialog = AddSiteRulesDialog(self)
         if dialog.exec() and dialog.text().strip():
-            self._run_mutation("add", dialog.text())
+            self._run_action("add", dialog.text())
 
     def _import_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, tr("Import list"), "", tr("Text files (*.txt);;All files (*)"))
         if path:
-            self._run_mutation("import", path)
+            self._run_action("import", path)
 
     def _delete_selection(self) -> None:
         if not self._selected:
             return
-        managed = sum(
-            1 for rule in self._manager.rules()
-            if rule.value in self._selected and rule.source is SiteRuleSource.AI
-        )
-        if managed and not self._confirm_ai_delete(managed):
-            return
-        self._run_mutation("remove", list(self._selected))
-
-    def _confirm_ai_delete(self, count: int) -> bool:
-        return QMessageBox.question(
-            self,
-            tr("Remove AI sites"),
-            tr("AI-site entries are managed as a group. Remove %d selected entry(s)?") % count,
-            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Remove,
-            QMessageBox.StandardButton.Cancel,
-        ) is QMessageBox.StandardButton.Remove
+        self._run_action("remove", list(self._selected))
 
     def _on_ai_toggled(self, enabled: bool) -> None:
         if not self._confirm_ai_hosts_change(enabled):
@@ -597,7 +576,7 @@ class SitesTab(SeascapePage):
             self._ai_switch.setChecked(not enabled)
             self._ai_switch.blockSignals(False)
             return
-        self._run_mutation("ai_on" if enabled else "ai_off")
+        self._run_action("ai_on" if enabled else "ai_off")
 
     def _confirm_ai_hosts_change(self, enabling: bool) -> bool:
         action = tr("enable") if enabling else tr("disable")
@@ -605,22 +584,22 @@ class SitesTab(SeascapePage):
             self,
             tr("AI services"),
             tr(
-                "AI services mode uses the complete hosts bundle from Zapret-GUI 2.1.1, "
-                "including its non-AI and ad-block entries, and sends AI domains through DPI "
-                "bypass. Unlock writes it only inside its separate Windows hosts block. "
+                "AI services mode uses the complete hosts bundle from Zapret-GUI, "
+                "including its non-AI and ad-block entries. It stays separate from your "
+                "zapret domain/IP lists and is written only inside Unlock's Windows hosts block. "
                 "Administrator confirmation may be requested. %s it?"
             ) % action,
             QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok,
             QMessageBox.StandardButton.Cancel,
         ) is QMessageBox.StandardButton.Ok
 
-    def _run_mutation(self, action: str, payload=None) -> None:
+    def _run_action(self, action: str, payload=None) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
         self._delete_selected.setEnabled(False)
         worker = SiteListsWorker(self._manager, action, payload)
-        worker.completed.connect(self._on_mutation_completed)
-        worker.failed.connect(self._on_mutation_failed)
+        worker.completed.connect(self._on_action_completed)
+        worker.failed.connect(self._on_action_failed)
         self._worker = worker
         worker.start()
 
@@ -632,7 +611,7 @@ class SitesTab(SeascapePage):
         self._notice_timeout.start(5200)
 
     @pyqtSlot(str, object)
-    def _on_mutation_completed(self, action: str, result: MutationResult | tuple) -> None:
+    def _on_action_completed(self, action: str, result: ListUpdateResult | tuple) -> None:
         self._worker = None
         elevation_needed = False
         source = ""
@@ -642,11 +621,7 @@ class SitesTab(SeascapePage):
         self._selected.clear()
         self.reload()
         if result.touched:
-            if action == "add":
-                self._controller.status_message.emit(tr("Rule added"))
-            elif action == "import":
-                self._controller.status_message.emit(tr("List imported: %d rules" ) % result.added)
-            elif action in {"ai_refresh", "ai_sync"}:
+            if action in {"ai_refresh", "ai_sync"}:
                 message = tr("AI services list updated")
                 if source == "cache":
                     message = tr("AI services updated from cache")
@@ -655,14 +630,17 @@ class SitesTab(SeascapePage):
                 message = tr("AI services updated")
                 if source == "cache":
                     message = tr("AI services updated from cache")
-                elif ai_error:
-                    message = tr("AI services list updated; hosts mapping was unavailable")
                 self._controller.status_message.emit(message)
+            elif action == "add":
+                self._controller.status_message.emit(tr("Rule added"))
+            elif action == "import":
+                self._controller.status_message.emit(tr("List imported: %d rules" ) % result.added)
             else:
                 self._controller.status_message.emit(tr("List saved"))
-            # This emits the final "saved for next start" message when DPI is
-            # off, or starts a targeted winws-only restart when it is running.
-            self._controller.apply_site_lists()
+            if action not in {"ai_on", "ai_off", "ai_refresh", "ai_sync"}:
+                # AI hosts mode is independent. Only actual zapret list edits
+                # require a targeted winws restart.
+                self._controller.apply_site_lists()
         elif result.invalid:
             self._controller.status_message.emit(tr("No valid new rules"))
         elif result.duplicates:
@@ -677,10 +655,15 @@ class SitesTab(SeascapePage):
                     tr("UAC confirmation requested — AI hosts change will apply shortly")
                 )
             else:
+                if action == "ai_on":
+                    self._manager.set_ai_sites_enabled(False)
+                elif action == "ai_off":
+                    self._manager.set_ai_sites_enabled(True)
+                self.reload()
                 self._controller.error.emit(message)
 
     @pyqtSlot(str, str)
-    def _on_mutation_failed(self, _action: str, message: str) -> None:
+    def _on_action_failed(self, _action: str, message: str) -> None:
         self._worker = None
         self.reload()
         self._controller.error.emit(message)

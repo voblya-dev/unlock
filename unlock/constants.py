@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.1.6"
 
 # ---------------------------------------------------------------- paths
 
@@ -168,33 +168,6 @@ BENCHMARK_SETTLE_DELAY = 2.5
 # Quick triage probe uses even less settle — just enough for winws to bind the filter.
 BENCHMARK_TRIAGE_SETTLE = 1.5
 
-# ---------------------------------------------------------------- evolution
-
-# The genetic search evaluates hundreds of candidates, and every evaluation
-# costs a winws restart plus a full probe sweep. These trade breadth for time.
-EVOLUTION_POPULATION = 12
-EVOLUTION_GENERATIONS = 8
-EVOLUTION_ELITES = 3           # carried to the next generation untouched
-EVOLUTION_TOURNAMENT = 3       # entrants per parent selection
-EVOLUTION_MUTATION_RATE = 0.25  # share of a genome's genes rewritten per mutation
-EVOLUTION_CROSSOVER_CHANCE = 0.7
-EVOLUTION_STALL_LIMIT = 3      # generations without improvement before stopping
-EVOLUTION_TIME_BUDGET = 45 * 60  # seconds; a whole run must fit a coffee break
-
-# Scoring a candidate uses a reduced target set: one URL per service is enough
-# to rank a genome, and it cuts each evaluation to roughly a quarter of a full
-# benchmark probe sweep. The winner is re-scored against the full set.
-EVOLUTION_PROBE_TARGETS = {
-    "discord": ["https://discord.com"],
-    "youtube": ["https://www.youtube.com"],
-    "google": ["https://www.google.com"],
-    "cloudflare": ["https://www.cloudflare.com"],
-}
-EVOLUTION_PROBE_PROTOCOLS = ("http1.1", "tls1.3")
-# winws needs less grace here than in the benchmark: the search only asks
-# whether probes pass, not how fast, so it does not wait for throughput to settle.
-EVOLUTION_SETTLE_DELAY = 2.5
-
 # ---------------------------------------------------------------- defaults
 
 DEFAULT_CONFIG: dict = {
@@ -219,7 +192,6 @@ DEFAULT_CONFIG: dict = {
     # the filter from a handful of web ports to 1024-65535.
     "game_filter": False,
     "benchmark_results": {},
-    "evolution_results": {},     # last genetic search summary
     "theme": "system",           # system | dark | light
     "accent": "mono",            # key from ui.theme.ACCENTS (white/black)
     "language": "system",        # system | en | ru

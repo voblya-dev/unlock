@@ -4,8 +4,8 @@ The zapret pack is shipped as an application resource and is deliberately
 treated as immutable.  This module owns the small, versioned document under
 ``%APPDATA%\\Unlock`` and derives two plain-text files which winws can consume.
 Keeping the editable records separate from the generated files makes updates
-safe and gives the UI enough metadata to distinguish user rules from the
-built-in AI-sites collection.
+safe. AI-service mappings are deliberately separate: like current Zapret-GUI
+they live in a managed Windows ``hosts`` block and never enter a winws list.
 """
 
 from __future__ import annotations
@@ -39,70 +39,20 @@ class SiteRuleType(str, Enum):
     SUBNET = "subnet"
 
 
-class SiteRuleSource(str, Enum):
-    USER = "user"
-    AI = "ai"
-
-
 _DOMAIN_RE = re.compile(
     r"^(?:\*\.)?(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
 )
-
-# Kept local and versionable: a future signed HTTPS feed can replace this
-# tuple without changing the UI or list persistence format.
-AI_SITES: tuple[str, ...] = (
-    "chatgpt.com",
-    "openai.com",
-    "auth.openai.com",
-    "platform.openai.com",
-    "api.openai.com",
-    "oaistatic.com",
-    "oaiusercontent.com",
-    "claude.ai",
-    "anthropic.com",
-    "gemini.google.com",
-    "aistudio.google.com",
-    "generativelanguage.googleapis.com",
-    "copilot.microsoft.com",
-    "perplexity.ai",
-    "grok.com",
-    "x.ai",
-    "mistral.ai",
-    "cohere.com",
-    "deepseek.com",
-    "huggingface.co",
-    "poe.com",
-    "you.com",
-    "character.ai",
-    "meta.ai",
-    "elevenlabs.io",
-    "midjourney.com",
-    "runwayml.com",
-    "stability.ai",
-    "leonardo.ai",
-    "groq.com",
-    "together.ai",
-    "qwen.ai",
-    "kimi.com",
-    "manus.im",
-    "cursor.com",
-    "windsurf.com",
-    "trae.ai",
-)
-
 
 @dataclass(frozen=True)
 class SiteRule:
     type: SiteRuleType
     value: str
-    source: SiteRuleSource = SiteRuleSource.USER
     enabled: bool = True
 
     def as_dict(self) -> dict:
         return {
             "type": self.type.value,
             "value": self.value,
-            "source": self.source.value,
             "enabled": self.enabled,
         }
 
@@ -117,8 +67,8 @@ class HostMapping:
 
 
 @dataclass(frozen=True)
-class MutationResult:
-    """What a mutation did, suitable for concise UI feedback."""
+class ListUpdateResult:
+    """What a list update did, suitable for concise UI feedback."""
 
     added: int = 0
     removed: int = 0
@@ -244,7 +194,10 @@ class SiteListManager:
         self._host_mappings: list[HostMapping] = []
         self._hosts_enabled = False
         self._ai_sites_enabled = False
+        self._loaded_legacy_ai_rules = False
         self.load()
+        if self._loaded_legacy_ai_rules:
+            self.save()
         # A generated file can be lost independently (for example after manual
         # cleanup). Rebuild it when the application opens without touching the
         # packaged zapret lists.
@@ -268,15 +221,17 @@ class SiteListManager:
         for item in raw_rules if isinstance(raw_rules, list) else []:
             if not isinstance(item, dict):
                 continue
+            # Up to 1.1.5 AI mappings were also sent through winws. Current
+            # Zapret-GUI uses only its hosts block, so migrate generated rows
+            # out while keeping any same-named rule added by the user.
+            if item.get("source") == "ai":
+                self._loaded_legacy_ai_rules = True
+                continue
             parsed = parse_rule(str(item.get("value", "")))
-            try:
-                source = SiteRuleSource(item.get("source", SiteRuleSource.USER.value))
-            except ValueError:
-                source = SiteRuleSource.USER
             if parsed is None or (parsed.type, parsed.value) in seen:
                 continue
             seen.add((parsed.type, parsed.value))
-            rules.append(SiteRule(parsed.type, parsed.value, source, bool(item.get("enabled", True))))
+            rules.append(SiteRule(parsed.type, parsed.value, bool(item.get("enabled", True))))
         self._rules = rules
 
         mappings: list[HostMapping] = []
@@ -307,9 +262,7 @@ class SiteListManager:
     def rules(self) -> tuple[SiteRule, ...]:
         return tuple(self._rules)
 
-    def add_values(
-        self, values: Iterable[str], *, source: SiteRuleSource = SiteRuleSource.USER
-    ) -> MutationResult:
+    def add_values(self, values: Iterable[str]) -> ListUpdateResult:
         current = {(rule.type, rule.value) for rule in self._rules}
         added, duplicates, invalid = 0, 0, []
         for value in values:
@@ -321,89 +274,51 @@ class SiteListManager:
             if key in current:
                 duplicates += 1
                 continue
-            self._rules.append(SiteRule(parsed.type, parsed.value, source, True))
+            self._rules.append(SiteRule(parsed.type, parsed.value, True))
             current.add(key)
             added += 1
-        result = MutationResult(added=added, duplicates=duplicates, invalid=tuple(invalid))
+        result = ListUpdateResult(added=added, duplicates=duplicates, invalid=tuple(invalid))
         if result.touched:
             self._persist_rules()
         return result
 
-    def add_text(self, text: str) -> MutationResult:
+    def add_text(self, text: str) -> ListUpdateResult:
         return self.add_values(parse_import_lines(text))
 
-    def remove_values(self, values: Iterable[str], *, ai_only: bool = False) -> MutationResult:
+    def remove_values(self, values: Iterable[str]) -> ListUpdateResult:
         wanted = set(values)
         old = len(self._rules)
-        self._rules = [
-            rule for rule in self._rules
-            if rule.value not in wanted or (ai_only and rule.source is not SiteRuleSource.AI)
-        ]
-        result = MutationResult(removed=old - len(self._rules))
+        self._rules = [rule for rule in self._rules if rule.value not in wanted]
+        result = ListUpdateResult(removed=old - len(self._rules))
         if result.touched:
             self._persist_rules()
         return result
 
-    def remove_ai_sites(self) -> MutationResult:
-        old = len(self._rules)
-        self._rules = [rule for rule in self._rules if rule.source is not SiteRuleSource.AI]
-        result = MutationResult(removed=old - len(self._rules))
-        if result.touched:
-            self._persist_rules()
-        return result
-
-    def set_enabled(self, values: Iterable[str], enabled: bool) -> MutationResult:
+    def set_enabled(self, values: Iterable[str], enabled: bool) -> ListUpdateResult:
         wanted = set(values)
         changed = 0
         updated = []
         for rule in self._rules:
             if rule.value in wanted and rule.enabled != enabled:
-                rule = SiteRule(rule.type, rule.value, rule.source, enabled)
+                rule = SiteRule(rule.type, rule.value, enabled)
                 changed += 1
             updated.append(rule)
         self._rules = updated
-        result = MutationResult(changed=changed)
+        result = ListUpdateResult(changed=changed)
         if result.touched:
             self._persist_rules()
         return result
 
-    def set_all_enabled(self, enabled: bool) -> MutationResult:
+    def set_all_enabled(self, enabled: bool) -> ListUpdateResult:
         return self.set_enabled((rule.value for rule in self._rules), enabled)
 
-    def set_ai_sites_enabled(
-        self, enabled: bool, values: Iterable[str] = AI_SITES,
-    ) -> MutationResult:
-        """Enable the built-in AI collection or remove only its own records."""
+    def set_ai_sites_enabled(self, enabled: bool) -> ListUpdateResult:
+        """Persist the independent AI-hosts mode without changing zapret lists."""
         mode_changed = self._ai_sites_enabled != enabled
         self._ai_sites_enabled = enabled
-        if not enabled:
-            result = self.remove_ai_sites()
-        else:
-            result = self.add_values(values, source=SiteRuleSource.AI)
-        if mode_changed and not result.touched:
+        if mode_changed:
             self.save()
-            result = MutationResult(changed=1)
-        return result
-
-    def refresh_ai_sites(self, values: Iterable[str] = AI_SITES) -> MutationResult:
-        """Refresh the source-owned collection; extension point for signed feeds."""
-        if not self._ai_sites_enabled:
-            return MutationResult()
-        canonical = []
-        for value in values:
-            parsed = parse_rule(value)
-            if parsed is not None and parsed.type is SiteRuleType.DOMAIN:
-                canonical.append(parsed.value)
-        available = set(canonical)
-        old_ai = {rule.value for rule in self._rules if rule.source is SiteRuleSource.AI}
-        removed = self.remove_values(old_ai - available, ai_only=True).removed
-        result = self.add_values(canonical, source=SiteRuleSource.AI)
-        return MutationResult(
-            added=result.added,
-            removed=removed,
-            duplicates=result.duplicates,
-            invalid=result.invalid,
-        )
+        return ListUpdateResult(changed=1 if mode_changed else 0)
 
     @property
     def ai_sites_enabled(self) -> bool:
@@ -444,6 +359,11 @@ class SiteListManager:
         # actual user rules are already merged above, like Zapret-GUI's runtime
         # rebuild, so this companion file is intentionally empty.
         _atomic_write(self.runtime_empty_hostlist_path, "")
+        log.info(
+            "Rebuilt zapret runtime lists: %s custom domains, %s custom IP entries",
+            len(domains),
+            len(addresses),
+        )
 
     @staticmethod
     def _merge_base(base_path: Path, additions: Iterable[str]) -> str:

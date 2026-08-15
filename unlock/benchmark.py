@@ -201,9 +201,9 @@ def probe_strategy(
 ) -> StrategyResult:
     """Run one strategy in isolation and score it against the probe targets.
 
-    Shared by the preset benchmark and the genetic search. The search passes a
-    reduced target set and skips the link measurement, because it runs this
-    hundreds of times and only needs the pass ratio to rank candidates.
+    Used by the preset benchmark and by focused diagnostics. Callers may pass a
+    reduced target set or skip the link measurement when they only need a quick
+    reachability result.
 
     When fast_reject is True, runs a quick triage pass first: one URL per service,
     http1.1 only. If any service fails, the strategy is rejected without a full probe.

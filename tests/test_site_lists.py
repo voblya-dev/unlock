@@ -7,22 +7,28 @@ from pathlib import Path
 
 from unlock.ai_hosts import (
     AI_PROTECTED_HOSTS,
-    _ai_domains_from_bundle,
     _bundle_looks_useful,
     _filter_hosts_bundle,
 )
-from unlock.host_overrides import AI_BEGIN, AI_END, BEGIN, END, render_ai_hosts, render_hosts
+from unlock.host_overrides import (
+    AI_BEGIN,
+    AI_END,
+    BEGIN,
+    END,
+    _read_hosts,
+    _write_hosts,
+    render_ai_hosts,
+    render_hosts,
+)
 from unlock.site_lists import (
-    AI_SITES,
     HostMapping,
     SiteListManager,
-    SiteRuleSource,
     SiteRuleType,
     normalize_domain,
     parse_import_lines,
     parse_rule,
 )
-from unlock.strategies import expand_args
+from unlock.strategies import expand_args, find_strategy, load_strategies
 
 
 class SiteRuleParsingTests(unittest.TestCase):
@@ -104,18 +110,37 @@ class SiteListStorageTests(unittest.TestCase):
             "10.0.0.0/8\n203.0.113.0/24\n",
         )
 
-    def test_ai_collection_only_removes_its_own_source(self) -> None:
+    def test_ai_mode_stays_out_of_zapret_lists(self) -> None:
         self.manager.add_text("chatgpt.com")
+        before_hostlist = self.hostlist.read_text(encoding="utf-8")
+        before_rules = self.manager.rules()
         enabled = self.manager.set_ai_sites_enabled(True)
         self.assertTrue(self.manager.ai_sites_enabled)
-        self.assertGreater(enabled.added, 0)
-        self.assertIn("chatgpt.com", [rule.value for rule in self.manager.rules()])
+        self.assertTrue(enabled.touched)
+        self.assertEqual(self.manager.rules(), before_rules)
+        self.assertEqual(self.hostlist.read_text(encoding="utf-8"), before_hostlist)
         self.manager.set_ai_sites_enabled(False)
-        remaining = self.manager.rules()
         self.assertFalse(self.manager.ai_sites_enabled)
-        self.assertEqual(len(remaining), 1)
-        self.assertEqual(remaining[0].source, SiteRuleSource.USER)
-        self.assertEqual(remaining[0].value, "chatgpt.com")
+        self.assertEqual(self.manager.rules(), before_rules)
+
+    def test_legacy_generated_ai_rules_are_removed_but_user_rules_survive(self) -> None:
+        self.store.write_text(json.dumps({
+            "version": 1,
+            "rules": [
+                {"type": "domain", "value": "chatgpt.com", "source": "ai", "enabled": True},
+                {"type": "domain", "value": "example.com", "source": "user", "enabled": True},
+            ],
+            "hosts": [],
+            "hosts_enabled": False,
+            "ai_sites_enabled": True,
+        }), encoding="utf-8")
+        migrated = SiteListManager(self.store, self.hostlist, self.ipset)
+        self.assertEqual([rule.value for rule in migrated.rules()], ["example.com"])
+        self.assertTrue(migrated.ai_sites_enabled)
+        document = json.loads(self.store.read_text(encoding="utf-8"))
+        self.assertEqual(document["rules"], [{
+            "type": "domain", "value": "example.com", "enabled": True,
+        }])
 
     def test_host_mapping_is_validated_and_serialised(self) -> None:
         self.assertTrue(self.manager.add_host_mapping("Example.COM", "2001:db8::7"))
@@ -142,6 +167,21 @@ class ZapretArgumentTests(unittest.TestCase):
         self.assertTrue(args[4].endswith("zapret-lists\\ipset-all.txt"))
         self.assertFalse(any("unlock-hostlist.txt" in arg for arg in args))
 
+    def test_every_shipped_strategy_uses_runtime_user_lists(self) -> None:
+        strategies = load_strategies()
+        self.assertTrue(strategies)
+        for strategy in strategies:
+            args = [arg.lower() for arg in strategy.args]
+            self.assertTrue(
+                any("zapret-lists\\list-general.txt" in arg for arg in args),
+                strategy.name,
+            )
+            self.assertTrue(
+                any("zapret-lists\\ipset-all.txt" in arg for arg in args),
+                strategy.name,
+            )
+        self.assertIsNone(find_strategy("removed-local-profile"))
+
     def test_hosts_rendering_changes_only_unlock_markers(self) -> None:
         original = "127.0.0.1 localhost\n# user line\n"
         rendered = render_hosts(original, (HostMapping("example.com", "203.0.113.7"),))
@@ -164,6 +204,16 @@ class ZapretArgumentTests(unittest.TestCase):
         self.assertIn(AI_END, rendered)
         self.assertEqual(render_ai_hosts(rendered, ""), original)
 
+    def test_hosts_io_preserves_utf16(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "hosts"
+            path.write_text("# комментарий\r\n127.0.0.1 localhost\r\n", encoding="utf-16")
+            text, encoding = _read_hosts(path)
+            self.assertEqual(encoding, "utf-16")
+            self.assertIn("комментарий", text)
+            _write_hosts(path, text + "203.0.113.7 example.com\r\n", encoding)
+            self.assertIn("example.com", path.read_text(encoding="utf-16"))
+
 
 class AiHostsFeedTests(unittest.TestCase):
     def test_feed_keeps_full_bundle_but_protects_github_updates(self) -> None:
@@ -179,10 +229,6 @@ class AiHostsFeedTests(unittest.TestCase):
         self.assertIn("www.example.com", filtered)
         self.assertIn("0.0.0.0 claude.ai", filtered)
         self.assertTrue(_bundle_looks_useful(filtered))
-        self.assertEqual(
-            _ai_domains_from_bundle(filtered),
-            ("chatgpt.com", "api.openai.com", "claude.ai", "gemini.google.com"),
-        )
         self.assertIn("raw.githubusercontent.com", AI_PROTECTED_HOSTS)
 
 

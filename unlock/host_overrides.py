@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from .ai_hosts import load_cached_ai_hosts
@@ -101,20 +102,40 @@ def render_ai_hosts(text: str, hosts_text: str) -> str:
 
 
 def _read_hosts(path: Path) -> tuple[str, str]:
-    """Read UTF-8 hosts files, retaining the local Windows code page as fallback."""
+    """Read the common Windows hosts encodings without corrupting UTF-16 files."""
     raw = path.read_bytes()
-    try:
-        return raw.decode("utf-8"), "utf-8"
-    except UnicodeDecodeError:
-        # ``mbcs`` is Windows' active ANSI code page.  This preserves comments
-        # in legacy hosts files instead of replacing their non-ASCII bytes.
-        return raw.decode("mbcs"), "mbcs"
+    encodings = []
+    if raw.startswith(b"\xef\xbb\xbf"):
+        encodings.append("utf-8-sig")
+    elif raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        encodings.append("utf-16")
+    encodings.extend(("utf-8", "cp1251", "mbcs"))
+    for encoding in encodings:
+        try:
+            return raw.decode(encoding), encoding
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return raw.decode("utf-8", errors="replace"), "utf-8"
 
 
 def _write_hosts(path: Path, text: str, encoding: str) -> None:
+    """Replace hosts with short retries for antivirus/indexer file locks."""
     temporary = path.with_name("hosts.unlock.tmp")
-    temporary.write_text(text, encoding=encoding, newline="")
-    temporary.replace(path)
+    last_error: OSError | None = None
+    for attempt in range(8):
+        try:
+            temporary.write_text(text, encoding=encoding, newline="")
+            temporary.replace(path)
+            return
+        except OSError as exc:
+            last_error = exc
+            try:
+                os.chmod(path, 0o666)
+            except OSError:
+                pass
+            time.sleep(0.28 + attempt * 0.18)
+    if last_error is not None:
+        raise last_error
 
 
 def apply_hosts(mappings: tuple[HostMapping, ...]) -> None:
@@ -148,29 +169,18 @@ def remove_hosts_block() -> None:
 
 
 def _flush_dns() -> None:
-    try:
-        subprocess.run(
-            ["ipconfig", "/flushdns"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=0x08000000,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        log.warning("Could not flush Windows DNS cache")
-
-    try:
-        subprocess.run(
-            ["ipconfig", "/registerdns"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=0x08000000,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        log.warning("Could not register Windows DNS records")
+    for action in ("/flushdns", "/registerdns"):
+        try:
+            subprocess.run(
+                ["ipconfig", action],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=0x08000000,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            log.warning("Could not run ipconfig %s", action)
 
 
 def apply_ai_hosts(hosts_text: str) -> None:

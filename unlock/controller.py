@@ -18,13 +18,12 @@ from .benchmark import Benchmark, BenchmarkReport
 from .config import Config
 from .constants import TELEGRAM_PROXY_PORT
 from .dpi_engine import DpiEngine, DpiEngineError, is_admin
-from .evolution import Evolution, EvolutionReport
 from .logger import get_logger
 from . import sounds
 from .sounds import connected as _sound_connected
 from .sounds import disconnected as _sound_disconnected
 from .sounds import failed as _sound_failed
-from .strategies import find_strategy, load_evolved, load_strategies
+from .strategies import find_strategy, load_strategies
 from .system_proxy import SystemProxy, restore_orphaned
 from .telegram_proxy import TelegramProxy, TelegramProxyError
 from .tunnel_stats import TunnelStats
@@ -174,30 +173,6 @@ class BenchmarkWorker(QThread):
             self.finished_ok.emit(report)
         except Exception as exc:                      # noqa: BLE001 - surface anything
             log.exception("Benchmark crashed")
-            self.failed.emit(str(exc))
-
-
-class EvolutionWorker(QThread):
-    progress = pyqtSignal(int, str)
-    finished_ok = pyqtSignal(object)       # EvolutionReport
-    failed = pyqtSignal(str)
-
-    def __init__(self, controller: "Controller") -> None:
-        super().__init__()
-        self._c = controller
-        self._evolution = Evolution(controller.dpi, game_filter=controller.game_filter)
-
-    def cancel(self) -> None:
-        self._evolution.cancel()
-
-    def run(self) -> None:
-        try:
-            report = self._evolution.run(
-                progress=lambda pct, msg: self.progress.emit(pct, msg),
-            )
-            self.finished_ok.emit(report)
-        except Exception as exc:                      # noqa: BLE001 - surface anything
-            log.exception("Evolution crashed")
             self.failed.emit(str(exc))
 
 
@@ -388,13 +363,12 @@ class Controller(QObject):
     stats_changed = pyqtSignal(object)      # tunnel_stats.Snapshot | None
     benchmark_progress = pyqtSignal(int, str)
     benchmark_done = pyqtSignal(object)     # BenchmarkReport
-    evolution_progress = pyqtSignal(int, str)
-    evolution_done = pyqtSignal(object)     # EvolutionReport
     error = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
         self.config = Config()
+        self._normalise_strategy_selection()
         sounds.set_enabled(self.config.get("sounds", True))
         self.split_tunnel = SplitTunnelingManager(self.config)
         # Site rules have an independent, unencrypted file because they are
@@ -416,7 +390,6 @@ class Controller(QObject):
         self._tg_watcher: telegram_client.ProxyWatcher | None = None
         self._benchmark_worker: BenchmarkWorker | None = None
         self._aborted_benchmark: BenchmarkWorker | None = None
-        self._evolution_worker: EvolutionWorker | None = None
         self._shut_down = False
         self._workers: list[QThread] = []
 
@@ -427,6 +400,18 @@ class Controller(QObject):
         self._stats_timer = QTimer(self)
         self._stats_timer.setInterval(1000)
         self._stats_timer.timeout.connect(self._poll_stats)
+
+    def _normalise_strategy_selection(self) -> None:
+        """Replace a removed or stale saved profile with the pack default."""
+        selected = self.config.get("dpi_strategy")
+        if selected is None:
+            return
+        available = load_strategies(False)
+        if any(strategy.name == selected for strategy in available):
+            return
+        replacement = available[0].name if available else None
+        self.config.set("dpi_strategy", replacement)
+        log.info("Replaced unavailable DPI strategy with %s", replacement or "automatic")
 
     def _poll_stats(self) -> None:
         self.stats_changed.emit(self._stats.read())
@@ -558,14 +543,6 @@ class Controller(QObject):
 
     def apply_site_lists(self) -> None:
         """Apply a saved site-list edit without disturbing VPN or Telegram."""
-        # The local genetic search can retain a method that passed its old probe
-        # set but does not handle a newly added site. Zapret-GUI launches the
-        # proven General profile for its user list, so do the same whenever a
-        # list is edited instead of silently keeping a stale evolved method.
-        selected = self.config.get("dpi_strategy")
-        if isinstance(selected, str) and selected.startswith("Evolved ("):
-            self.config.set("dpi_strategy", "general")
-            log.info("Reset evolved DPI strategy to General for updated site lists")
         if self.dpi.running:
             self.restart_dpi(success_message="DPI restarted — changes applied")
         else:
@@ -573,6 +550,9 @@ class Controller(QObject):
 
     def _restart_dpi_blocking(self) -> None:
         self.dpi.stop()
+        # Match Zapret-GUI's runtime rebuild: always regenerate the effective
+        # list files immediately before launching a profile.
+        self.site_lists.write_zapret_lists()
         name = self.config.get("dpi_strategy")
         strategy = find_strategy(name, self.game_filter) if name else None
         if strategy is None:
@@ -738,75 +718,12 @@ class Controller(QObject):
         self._set_state(State.IDLE)
         self.status_message.emit("Testing cancelled — pick a strategy in Settings")
 
-    def run_evolution(self) -> EvolutionWorker:
-        """Search for a strategy tuned to this link instead of picking a preset."""
-        self._stop_latency_monitor()
-        self._stop_engines()
-        self._set_state(State.BENCHMARKING)
-
-        worker = EvolutionWorker(self)
-        worker.progress.connect(self.evolution_progress)
-        worker.finished_ok.connect(self._on_evolution_done)
-        worker.failed.connect(self._on_evolution_failed)
-        self._evolution_worker = worker
-        self._track(worker)
-        worker.start()
-        return worker
-
-    def abort_evolution(self) -> None:
-        """Stop the search and keep whatever it had already confirmed.
-
-        Unlike the benchmark, a partial search is still useful: generation zero
-        is the preset sweep, so anything it found is at least as good as what a
-        benchmark would have chosen. The worker finishes its current candidate
-        and reports normally.
-        """
-        if self._evolution_worker is None:
-            return
-        self._evolution_worker.cancel()
-        self.status_message.emit("Finishing the current test…")
-
-    def _on_evolution_done(self, report: EvolutionReport) -> None:
-        if self.sender() is not self._evolution_worker:
-            log.info("Discarding evolution report from a stale run")
-            return
-        self._evolution_worker = None
-
-        updates: dict = {
-            "first_run_done": True,
-            "benchmark_skipped": False,
-            "last_benchmark_utc": datetime.now(timezone.utc).isoformat(),
-            "evolution_results": report.as_dict(),
-        }
-        if report.saved_name:
-            updates["dpi_strategy"] = report.saved_name
-        self.config.update(updates)
-
-        self._set_state(State.IDLE)
-        best = report.best
-        if report.saved_name and best:
-            verdict = "beats every preset" if report.improved else "matches the best preset"
-            self.status_message.emit(
-                f"Evolved strategy: {best.passed}/{best.total} probes, "
-                f"{best.latency_ms:.0f} ms — {verdict}"
-            )
-        else:
-            self.status_message.emit("The search found nothing that works here")
-        self.evolution_done.emit(report)
-
-    def _on_evolution_failed(self, message: str) -> None:
-        if self.sender() is not self._evolution_worker:
-            return
-        self._evolution_worker = None
-        self._set_state(State.IDLE)
-        self.error.emit(f"Strategy search failed: {message}")
-
     def shutdown(self) -> None:
         if self._shut_down:
             return
         self._shut_down = True
         self._stats_timer.stop()
-        known = [self._latency_worker, self._vpn_ping_worker, self._tg_watcher, self._benchmark_worker, self._aborted_benchmark, self._evolution_worker, *self._workers]
+        known = [self._latency_worker, self._vpn_ping_worker, self._tg_watcher, self._benchmark_worker, self._aborted_benchmark, *self._workers]
         workers = []
         seen = set()
         for worker in known:
@@ -825,7 +742,7 @@ class Controller(QObject):
             if callable(interrupt):
                 interrupt()
         self._latency_worker = self._vpn_ping_worker = self._tg_watcher = None
-        self._benchmark_worker = self._aborted_benchmark = self._evolution_worker = None
+        self._benchmark_worker = self._aborted_benchmark = None
         self._stop_vpn()
         self._stop_engines()
         for worker in workers:
@@ -842,6 +759,7 @@ class Controller(QObject):
         started: list[str] = []
 
         if self.config.get("enable_dpi", True):
+            self.site_lists.write_zapret_lists()
             name = self.config.get("dpi_strategy")
             strategy = find_strategy(name, self.game_filter) if name else None
             if strategy is None:
