@@ -64,7 +64,9 @@ jobs:
       - name: Install WiX toolset
         shell: pwsh
         run: |
-          dotnet tool install --tool-path .wix wix
+          # The installer source uses the stable WiX v4 schema. Pin the tool;
+          # an unpinned major upgrade can reject a valid release package.
+          dotnet tool install --tool-path .wix wix --version 4.0.5
           "${{ github.workspace }}\.wix" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Validate version against tag
