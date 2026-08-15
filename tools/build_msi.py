@@ -10,6 +10,50 @@ import argparse
 import shutil
 import subprocess
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
+from xml.sax.saxutils import escape
+
+
+FORBIDDEN_SCRIPT_SUFFIXES = {".bat", ".cmd", ".ps1"}
+
+
+def _component_fragment(source: Path, output: Path) -> None:
+    """Generate WiX v4 components without the newer ``Files`` shorthand."""
+    entries: list[str] = []
+    for index, path in enumerate(sorted(path for path in source.rglob("*") if path.is_file()), start=1):
+        relative = path.relative_to(source)
+        if path.suffix.lower() in FORBIDDEN_SCRIPT_SUFFIXES:
+            raise SystemExit(f"Refusing to package command script: {relative}")
+        subdirectory = relative.parent.as_posix().replace("/", "\\")
+        guid = uuid5(NAMESPACE_URL, f"voblya-dev/unlock/{relative.as_posix()}")
+        attributes = [f'Id="AppFile{index:05}"', f'Guid="{{{guid}}}"']
+        if subdirectory != ".":
+            attributes.append(f'Subdirectory="{escape(subdirectory, {"\"": "&quot;"})}"')
+        source_attr = escape(str(path), {"\"": "&quot;"})
+        entries.extend(
+            [
+                f"      <Component {' '.join(attributes)}>",
+                f'        <File Id="File{index:05}" Source="{source_attr}" />',
+                "      </Component>",
+            ]
+        )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        "\n".join(
+            [
+                '<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">',
+                '  <Fragment>',
+                '    <ComponentGroup Id="ApplicationFiles" Directory="INSTALLFOLDER">',
+                *entries,
+                "    </ComponentGroup>",
+                "  </Fragment>",
+                "</Wix>",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
 
 def main() -> int:
@@ -29,11 +73,14 @@ def main() -> int:
         raise SystemExit(f"Unlock.exe not found in {source}")
 
     output.parent.mkdir(parents=True, exist_ok=True)
+    generated = root / "build" / "generated" / "UnlockFiles.wxs"
+    _component_fragment(source, generated)
     result = subprocess.run(
         [
             wix,
             "build",
             str(root / "installer" / "Unlock.wxs"),
+            str(generated),
             "-d",
             f"SourceDir={source}",
             "-d",

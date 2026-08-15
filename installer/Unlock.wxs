@@ -30,9 +30,4 @@
     </Feature>
   </Package>
 
-  <Fragment>
-    <ComponentGroup Id="ApplicationFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(var.SourceDir)\**" />
-    </ComponentGroup>
-  </Fragment>
 </Wix>
