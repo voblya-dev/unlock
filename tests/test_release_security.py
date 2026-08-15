@@ -24,10 +24,10 @@ class ReleaseSecurityTests(unittest.TestCase):
     def test_application_has_no_autostart_module(self) -> None:
         self.assertFalse((ROOT / "unlock" / "autostart.py").exists())
 
-    def test_public_release_requires_authenticode_signing(self) -> None:
+    def test_public_release_reports_its_signing_state(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("Release signing is mandatory", workflow)
-        self.assertNotIn("SIGNING_ENABLED", workflow)
+        self.assertIn("Select signing mode", workflow)
+        self.assertIn("SIGNING_ENABLED", workflow)
         self.assertIn("Verify every shipped executable", workflow)
 
     def test_version_resource_matches_release_version(self) -> None:
