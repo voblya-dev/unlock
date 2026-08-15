@@ -451,15 +451,11 @@ class InstallerWindow(QMainWindow):
             tr("Add a Start Menu shortcut"),
             checked=True,
         )
-        self.logon_row, self.logon_box = self._option_box(
-            tr("Launch Unlock when you sign in"),
-            checked=False,
-        )
         self.run_row, self.run_box = self._option_box(
             tr("Launch Unlock after install"),
-            checked=True,
+            checked=False,
         )
-        for row in (self.desktop_row, self.start_menu_row, self.logon_row, self.run_row):
+        for row in (self.desktop_row, self.start_menu_row, self.run_row):
             options_layout.addWidget(row)
         layout.addWidget(options)
         layout.addStretch(1)
@@ -726,7 +722,6 @@ class InstallerWindow(QMainWindow):
             install_dir=Path(self.path_edit.text()).expanduser(),
             desktop_shortcut=self.desktop_box.isChecked(),
             start_menu_shortcut=self.start_menu_box.isChecked(),
-            launch_on_login=self.logon_box.isChecked(),
             launch_after_install=self.run_box.isChecked(),
         )
 

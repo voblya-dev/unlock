@@ -4,7 +4,7 @@
   <img src="assets/unlock-readme.png" alt="Unlock">
 </p>
 
-**Unlock 1.1.6** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
+**Unlock 1.1.7** — Windows-приложение, которое объединяет DPI bypass, локальный Telegram-прокси и VPN-подключения в одном интерфейсе. Оно рассчитано на обычную установку: скачайте `UnlockSetup.exe`, выберите нужные ярлыки и дождитесь завершения.
 
 > Unlock предназначен только для законного использования. Работа обхода зависит от провайдера, сети и региона; приложение не гарантирует доступность какого-либо отдельного сервиса.
 
@@ -145,11 +145,18 @@ Benchmark проверяет доступность Discord, YouTube, Google и 
 
 ## Безопасность и права
 
-- WinDivert и TUN требуют Administrator rights.
+- Интерфейс Unlock запускается от обычного пользователя. Только при нажатии
+  «Подключить» для WinDivert/DPI он предлагает явный перезапуск с правами
+  администратора; Telegram-режим доступен без него.
 - Приложение допускает только один запущенный экземпляр.
+- Unlock не создаёт задачу автозапуска, запись `HKCU\\Run` или скрытый процесс.
+  Установщик удаляет одноимённые устаревшие записи от старых выпусков.
 - При аварийном завершении Unlock пытается восстановить системный прокси и остановить оставшийся VPN-интерфейс.
-- Установщик всегда проверяет размер и контрольную сумму пакета; Authenticode-подписи проверяются, когда для релиза настроен ожидаемый издатель.
-- Каждый релиз собирается в GitHub Actions и получает проверяемую GitHub provenance-аттестацию. При настроенном Azure Artifact Signing он также подписывается; хеши лежат в `SHA256SUMS.txt`.
+- Установщик всегда проверяет размер, SHA-256 и Authenticode-подписи пакета.
+- Каждый публичный релиз обязательно подписывается Azure Artifact Signing,
+  получает проверяемую GitHub provenance-аттестацию, а его хеши лежат в
+  `SHA256SUMS.txt`. Workflow намеренно отказывается публиковать неподписанный
+  релиз.
 - Встроенные бинарники поставляются вместе с нужными лицензиями; лицензия `tg-ws-proxy` находится в `unlock/tgwsproxy/LICENSE`.
 
 ## Запуск из исходников
@@ -167,7 +174,6 @@ py main.py
 
 ```text
 --minimized   запустить сразу в системном трее
---no-elevate  не выполнять повторный запуск через UAC
 ```
 
 Если отсутствует `bin/zapret`, подготовьте его командой:
@@ -189,10 +195,12 @@ py -m PyInstaller unlock.spec --noconfirm
 
 ## Выпуск новой версии
 
-Перед созданием тега синхронизируйте версию в `unlock/constants.py`, `loader/config.py` и `loader/__init__.py`, затем проверьте её:
+Перед созданием тега синхронизируйте версию в `unlock/constants.py`,
+`loader/config.py`, `loader/__init__.py` и двух `assets/*version_info.txt`,
+затем проверьте её:
 
 ```powershell
-py -B tools/check_release_version.py --tag v1.1.6
+py -B tools/check_release_version.py --tag v1.1.7
 ```
 
 GitHub Actions по тегу `v*`:
@@ -204,7 +212,18 @@ GitHub Actions по тегу `v*`:
 5. собирает и подписывает `UnlockSetup.exe`;
 6. публикует `Unlock.zip`, `loader_manifest.json`, `UnlockSetup.exe` и `SHA256SUMS.txt` в GitHub Release, а для ZIP и установщика — provenance-аттестации.
 
-Для подписанного выпуска создайте Azure Artifact Signing account с проверенным publisher identity, назначьте GitHub OIDC-federated credential для Environment `release` и роли `Artifact Signing Certificate Profile Signer`, затем задайте GitHub Actions secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_ARTIFACT_SIGNING_ENDPOINT`, `AZURE_ARTIFACT_SIGNING_ACCOUNT`, `AZURE_ARTIFACT_SIGNING_PROFILE` и repository variable `CODE_SIGNING_PUBLISHER` (точная часть Subject сертификата, например `O=Your Company`). Workflow использует короткоживущий OIDC-токен, поэтому не хранит приватный ключ или секрет сертификата. Без этих настроек он публикует неподписанный релиз; сверяйте `SHA256SUMS.txt`. Для новых срабатываний Defender отправляйте именно подписанный релиз как ложное срабатывание через [Microsoft Security Intelligence](https://www.microsoft.com/wdsi/filesubmission); ссылка на релиз и SHA-256 из `SHA256SUMS.txt` позволяют службе проверить конкретный образец.
+Для выпуска создайте Azure Artifact Signing account с проверенным publisher
+identity, назначьте GitHub OIDC-federated credential для Environment `release`
+и роли `Artifact Signing Certificate Profile Signer`, затем задайте GitHub
+Actions secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`,
+`AZURE_ARTIFACT_SIGNING_ENDPOINT`, `AZURE_ARTIFACT_SIGNING_ACCOUNT`,
+`AZURE_ARTIFACT_SIGNING_PROFILE` и repository variable
+`CODE_SIGNING_PUBLISHER` (точная часть Subject сертификата, например
+`O=Your Company`). Workflow использует короткоживущий OIDC-токен, поэтому не
+хранит приватный ключ или секрет сертификата. Без этих настроек он намеренно
+завершится ошибкой и не опубликует неподписанный EXE. Если Defender ошибочно
+сработает на уже подписанный выпуск, отправьте конкретный файл как ложное
+срабатывание через [Microsoft Security Intelligence](https://www.microsoft.com/wdsi/filesubmission).
 
 Для локальной сборки релизных артефактов:
 
@@ -213,8 +232,8 @@ py -m PyInstaller unlock.spec --noconfirm
 py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
 py -B tools/build_unlock_setup.py `
   --zip dist/Unlock.zip `
-  --version 1.1.6 `
-  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.1.6/Unlock.zip `
+  --version 1.1.7 `
+  --package-url https://github.com/voblya-dev/unlock/releases/download/v1.1.7/Unlock.zip `
   --publisher "O=Your Company"
 ```
 

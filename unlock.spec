@@ -5,7 +5,7 @@ Build:
     pip install -r requirements.txt pyinstaller
     pyinstaller unlock.spec --noconfirm
 
-Output: dist/Unlock/Unlock.exe (one folder, no console, requests elevation).
+Output: dist/Unlock/Unlock.exe (one folder, no console, standard-user UI).
 
 Deliberately one-folder rather than one-file. A one-file build unpacks the whole
 payload into %TEMP% on every launch, and Windows Defender's ML heuristics score
@@ -111,8 +111,11 @@ exe = EXE(
     upx=False,                  # UPX-packed WinDivert trips AV heuristics
     console=False,
     disable_windowed_traceback=False,
-    uac_admin=True,             # WinDivert driver load requires elevation
+    # The UI starts as a standard user.  It asks to restart elevated only after
+    # the user explicitly starts the WinDivert-based DPI mode.
+    uac_admin=False,
     icon="assets/unlock-mask.ico" if (ROOT / "assets" / "unlock-mask.ico").exists() else None,
+    version="assets/unlock_version_info.txt" if (ROOT / "assets" / "unlock_version_info.txt").exists() else None,
 )
 
 coll = COLLECT(

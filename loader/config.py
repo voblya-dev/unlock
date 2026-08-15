@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.1.6"
+APP_VERSION = "1.1.7"
 GITHUB_REPO = "voblya-dev/unlock"
 DEFAULT_MANIFEST_URL = (
     f"https://github.com/{GITHUB_REPO}/releases/latest/download/loader_manifest.json"
@@ -25,7 +25,6 @@ START_MENU_LINK = (
     / f"{APP_NAME}.lnk"
 )
 DESKTOP_LINK = Path(os.environ.get("USERPROFILE", Path.home())) / "Desktop" / f"{APP_NAME}.lnk"
-AUTOSTART_TASK_NAME = f"{APP_NAME}Autostart"
 
 
 def runtime_root() -> Path:

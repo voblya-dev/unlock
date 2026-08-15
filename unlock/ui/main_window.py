@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import autostart, logger, sounds
+from .. import logger, sounds
 from ..constants import APP_NAME, APP_VERSION, CONFIG_PATH, LOG_PATH
 from ..controller import Controller, State
 from ..strategies import load_strategies
@@ -709,13 +709,6 @@ class MainWindow(QWidget):
         blurb.setWordWrap(True)
         layout.addWidget(blurb)
 
-        self._cb_autostart = Switch(tr("Launch Unlock when Windows starts"))
-        self._cb_autostart.setToolTip(
-            tr("Adds Unlock to the Windows startup entries for your account.")
-        )
-        self._cb_autostart.toggled.connect(self._on_autostart_toggled)
-        layout.addWidget(self._cb_autostart)
-
         self._cb_start_min = Switch(tr("Start minimised to tray"))
         self._cb_start_min.setToolTip(
             tr("No window on launch — Unlock waits in the notification area.")
@@ -986,7 +979,6 @@ class MainWindow(QWidget):
     def _load_settings_into_ui(self) -> None:
         cfg = self._controller.config
         for widget, value in (
-            (self._cb_autostart, autostart.is_enabled()),
             (self._cb_start_min, cfg.get("start_minimized", False)),
             (self._cb_autoconnect, cfg.get("auto_connect_on_launch", False)),
             (self._cb_dpi, cfg.get("enable_dpi", True)),
@@ -1194,14 +1186,6 @@ class MainWindow(QWidget):
         # doing is worse than a line they can read when they next look.
         log.error("UI error: %s", message)
         anim.crossfade_text(self._detail, tr(message))
-
-    def _on_autostart_toggled(self, enabled: bool) -> None:
-        # The registry entry is the source of truth; nothing is mirrored to config.
-        if not autostart.set_enabled(enabled):
-            self._cb_autostart.blockSignals(True)
-            self._cb_autostart.setChecked(not enabled)
-            self._cb_autostart.blockSignals(False)
-            self._on_error("Could not update the Windows startup entry.")
 
     def _on_strategy_picked(self, _index: int) -> None:
         self._controller.config.set("dpi_strategy", self._combo_strategy.currentData())

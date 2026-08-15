@@ -18,6 +18,11 @@ VERSION_FILES = {
     ROOT / "loader" / "__init__.py": "LOADER_VERSION",
 }
 
+VERSION_RESOURCE_FILES = (
+    ROOT / "assets" / "unlock_version_info.txt",
+    ROOT / "assets" / "unlock_setup_version_info.txt",
+)
+
 
 def _read_constant(path: Path, name: str) -> str:
     pattern = re.compile(rf'^{name}\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
@@ -42,6 +47,16 @@ def main() -> int:
         current = _read_constant(path, name)
         if current != version:
             mismatches.append(f"{path.relative_to(ROOT)} -> {name}={current!r}, expected {version!r}")
+
+    for path in VERSION_RESOURCE_FILES:
+        content = path.read_text(encoding="utf-8")
+        match = re.search(r"StringStruct\(u'ProductVersion', u'([^']+)'\)", content)
+        if not match:
+            mismatches.append(f"{path.relative_to(ROOT)} -> ProductVersion is missing")
+        elif match.group(1) != version:
+            mismatches.append(
+                f"{path.relative_to(ROOT)} -> ProductVersion={match.group(1)!r}, expected {version!r}"
+            )
 
     if mismatches:
         raise SystemExit("Version mismatch:\n" + "\n".join(mismatches))

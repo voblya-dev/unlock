@@ -1,14 +1,13 @@
 """Application entry point.
 
-Handles single-instance enforcement, elevation re-launch, and the first-run
-benchmark before the main window is shown.
+Handles single-instance enforcement and the first-run benchmark before the
+main window is shown.  The normal UI deliberately runs without elevation.
 
-    python main.py [--minimized] [--no-elevate]
+    python main.py [--minimized]
 """
 
 from __future__ import annotations
 
-import ctypes
 import logging
 import sys
 import threading
@@ -32,8 +31,8 @@ _IPC_KEY = f"{APP_NAME}-single-instance"
 
 
 def _relaunch_elevated() -> bool:
-    """Re-exec self through ShellExecute runas. Returns True if handed off."""
-    params = " ".join(f'"{a}"' for a in [*sys.argv[1:], "--no-elevate"])
+    """Re-exec the UI after an explicit user request for Administrator rights."""
+    params = " ".join(f'"{a}"' for a in sys.argv[1:])
     if getattr(sys, "frozen", False):
         target, args = sys.executable, params
     else:
@@ -45,6 +44,27 @@ def _relaunch_elevated() -> bool:
         return result > 32
     except Exception:
         return False
+
+
+def _offer_elevation(parent: MainWindow, message: str) -> None:
+    """Offer elevation only in direct response to starting the DPI engine.
+
+    Asking for elevation on every launch is both surprising to users and a
+    common malware heuristic.  WinDivert still needs it, so keep the UAC
+    request explicit and narrowly tied to the user's Connect action.
+    """
+    if message != "Restart Unlock as Administrator — WinDivert needs elevation." or is_admin():
+        return
+    dialog = QMessageBox(parent)
+    dialog.setIcon(QMessageBox.Icon.Information)
+    dialog.setWindowTitle(APP_NAME)
+    dialog.setText("DPI bypass needs Administrator rights to load the WinDivert driver.")
+    dialog.setInformativeText("Unlock stays a normal user application until you choose to start DPI bypass.")
+    restart = dialog.addButton("Restart as Administrator", QMessageBox.ButtonRole.AcceptRole)
+    dialog.addButton(QMessageBox.StandardButton.Cancel)
+    dialog.exec()
+    if dialog.clickedButton() is restart and _relaunch_elevated():
+        QApplication.quit()
 
 
 def _claim_single_instance(app: QApplication) -> QLocalServer | None:
@@ -176,8 +196,6 @@ def main() -> int:
     log.info("=== %s starting ===", APP_NAME)
 
     minimized = "--minimized" in sys.argv
-    elevation_attempted = "--no-elevate" in sys.argv
-
     # Theme and language must be resolved before any widget is built: labels are
     # read at construction time and the stylesheet is applied app-wide.
     config = Config()
@@ -197,14 +215,9 @@ def main() -> int:
         return 0
 
     if not is_admin():
-        if not elevation_attempted and _relaunch_elevated():
-            log.info("Relaunching elevated")
-            return 0
-        # Logged rather than shown: the elevation prompt has already been the
-        # user's decision, and a dialog on top of it adds nothing they can act on.
         log.warning(
-            "Running without Administrator rights — the DPI bypass needs "
-            "elevation to load the WinDivert driver. The Telegram tunnel still works."
+            "Running as a standard user — DPI bypass asks for elevation only "
+            "when the user starts it. The Telegram tunnel still works."
         )
     else:
         remove_legacy_exclusion()
@@ -212,6 +225,7 @@ def main() -> int:
     controller = Controller()
     app.aboutToQuit.connect(controller.shutdown)
     window = MainWindow(controller)
+    controller.error.connect(lambda message: _offer_elevation(window, message))
 
     # Focus request from a second launch attempt.
     server.newConnection.connect(

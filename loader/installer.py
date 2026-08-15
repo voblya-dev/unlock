@@ -12,6 +12,7 @@ import threading
 import time
 import zipfile
 import ctypes
+import winreg
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable
@@ -26,7 +27,6 @@ from .i18n import tr
 from .config import (
     APP_NAME,
     APP_VERSION,
-    AUTOSTART_TASK_NAME,
     DEFAULT_INSTALL_DIR,
     DEFAULT_MANIFEST_URL,
     DEFAULT_PACKAGE_URL,
@@ -45,8 +45,10 @@ class InstallOptions:
     install_dir: Path
     desktop_shortcut: bool = True
     start_menu_shortcut: bool = True
-    launch_on_login: bool = False
-    launch_after_install: bool = True
+    # Do not launch a newly-downloaded executable automatically.  This keeps
+    # installation transparent and avoids the common downloader-to-execution
+    # heuristic used by malware classifiers.
+    launch_after_install: bool = False
 
 
 @dataclass(slots=True)
@@ -441,7 +443,7 @@ def _replace_tree(source: Path, destination: Path, log: LogCallback) -> None:
 
 def _powershell(*segments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", *segments],
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", *segments],
         capture_output=True,
         text=True,
         creationflags=0x08000000,
@@ -495,79 +497,36 @@ def _best_effort(log: LogCallback, label: str, action: Callable[[], None]) -> No
         log(f"Warning: {label} failed: {exc}")
 
 
-def _current_user() -> str:
-    domain = os.environ.get("USERDOMAIN", "").strip()
-    user = os.environ.get("USERNAME", "").strip()
-    return f"{domain}\\{user}" if domain else user
+def _remove_legacy_autostart() -> None:
+    """Remove only Unlock's legacy autostart entries.
 
-
-def _set_autostart(enabled: bool, exe_path: Path) -> None:
-    if not enabled:
-        subprocess.run(
-            ["schtasks", "/Delete", "/TN", AUTOSTART_TASK_NAME, "/F"],
-            capture_output=True,
-            text=True,
-            creationflags=0x08000000,
-            check=False,
-        )
-        return
-
-    xml = f"""<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Description>{_xml_escape(APP_NAME)} launches at sign-in.</Description>
-    <URI>\\{_xml_escape(AUTOSTART_TASK_NAME)}</URI>
-  </RegistrationInfo>
-  <Triggers>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-      <UserId>{_xml_escape(_current_user())}</UserId>
-    </LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>{_xml_escape(_current_user())}</UserId>
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>false</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>{_xml_escape(str(exe_path))}</Command>
-      <Arguments>--minimized</Arguments>
-      <WorkingDirectory>{_xml_escape(str(exe_path.parent))}</WorkingDirectory>
-    </Exec>
-  </Actions>
-</Task>
-"""
-    handle, temp_path = tempfile.mkstemp(suffix=".xml")
-    os.close(handle)
-    xml_path = Path(temp_path)
+    Older builds created a highest-available scheduled task.  That persistence
+    mechanism is unnecessary for a desktop GUI and contributes to malware
+    heuristics, so new installations remove it rather than creating a new
+    task or Run-key entry.
+    """
+    subprocess.run(
+        ["schtasks", "/Delete", "/TN", f"{APP_NAME}Autostart", "/F"],
+        capture_output=True,
+        text=True,
+        creationflags=0x08000000,
+        check=False,
+    )
     try:
-        xml_path.write_text(xml, encoding="utf-16")
-        result = subprocess.run(
-            ["schtasks", "/Create", "/TN", AUTOSTART_TASK_NAME, "/XML", str(xml_path), "/F"],
-            capture_output=True,
-            text=True,
-            creationflags=0x08000000,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise RuntimeError((result.stderr or result.stdout).strip() or "Autostart setup failed")
-    finally:
-        xml_path.unlink(missing_ok=True)
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            try:
+                winreg.DeleteValue(key, APP_NAME)
+            except FileNotFoundError:
+                pass
+    except OSError:
+        # A missing Run key or a policy-restricted account does not block a
+        # normal install; the application no longer creates this entry.
+        pass
 
 
 def install_release(
@@ -626,6 +585,8 @@ def install_release(
         options.install_dir.parent.mkdir(parents=True, exist_ok=True)
         progress(55, tr("Deploying files"))
         _replace_tree(payload_root, options.install_dir, log)
+        _remove_legacy_autostart()
+        log("Removed legacy autostart entries, if present")
 
         installed_exe = options.install_dir / manifest.entry_exe
         # Keep a dedicated icon file in the shortcut.  Windows otherwise
@@ -654,17 +615,6 @@ def install_release(
         else:
             _remove_path(START_MENU_LINK)
 
-        progress(88, tr("Configuring startup"))
-        _best_effort(
-            log,
-            "autostart",
-            lambda: _set_autostart(options.launch_on_login, installed_exe),
-        )
-        if options.launch_on_login:
-            log(f"Autostart: enabled task {AUTOSTART_TASK_NAME}")
-        else:
-            log("Autostart: disabled")
-
         set_stage(3, tr("Finishing up"), tr("Installation complete"))
         progress(100, tr("Ready"))
         if options.launch_after_install:
@@ -688,11 +638,11 @@ def uninstall_release(
     if not exe_path.is_file():
         raise RuntimeError(tr("No %s installation was found in %s.") % (APP_NAME, target))
 
-    set_stage(0, tr("Removing Unlock"), tr("Removing shortcuts and startup entry"))
+    set_stage(0, tr("Removing Unlock"), tr("Removing shortcuts"))
     progress(15, tr("Removing shortcuts"))
     _remove_path(DESKTOP_LINK)
     _remove_path(START_MENU_LINK)
-    _set_autostart(False, exe_path)
+    _remove_legacy_autostart()
 
     set_stage(1, tr("Removing Unlock"), f"{tr('Deleting')} {target}")
     progress(55, tr("Removing application files"))

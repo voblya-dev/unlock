@@ -69,7 +69,7 @@ jobs:
         shell: pwsh
         run: py -m PyInstaller unlock.spec --noconfirm
 
-      - name: Select signing mode
+      - name: Require release signing configuration
         shell: pwsh
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -86,18 +86,13 @@ jobs:
             $env:AZURE_ARTIFACT_SIGNING_PROFILE, $env:CODE_SIGNING_PUBLISHER
           )
           if ($required -contains "") {
-            "SIGNING_ENABLED=false" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            "RELEASE_PUBLISHER=" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            Write-Warning "Azure Artifact Signing is not configured; publishing an unsigned release."
-          } else {
-            "SIGNING_ENABLED=true" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            "RELEASE_PUBLISHER=$env:CODE_SIGNING_PUBLISHER" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            throw "Release signing is mandatory. Configure Azure Artifact Signing and CODE_SIGNING_PUBLISHER before publishing a tag."
           }
+          "RELEASE_PUBLISHER=$env:CODE_SIGNING_PUBLISHER" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # OIDC issues a short-lived GitHub token for Azure; no code-signing
       # private key or long-lived client secret is stored in this repository.
       - name: Authenticate to Azure Artifact Signing
-        if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -107,7 +102,6 @@ jobs:
       # When configured, the Artifact Signing identity and publisher name stay
       # outside the repository in GitHub secrets/variables.
       - name: Sign application executables
-        if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: Azure/artifact-signing-action@v2
         with:
           endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
@@ -121,7 +115,6 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Verify signed application payload
-        if: ${{ env.SIGNING_ENABLED == 'true' }}
         shell: pwsh
         run: |
           py -B tools/verify_authenticode.py dist\Unlock --publisher "$env:RELEASE_PUBLISHER"
@@ -139,7 +132,6 @@ jobs:
           py -B tools/build_unlock_setup.py --zip dist/Unlock.zip --version $version --package-url $packageUrl @publisherArgs
 
       - name: Sign bootstrap installer
-        if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: Azure/artifact-signing-action@v2
         with:
           endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
@@ -152,7 +144,6 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Verify every shipped executable
-        if: ${{ env.SIGNING_ENABLED == 'true' }}
         shell: pwsh
         run: |
           py -B tools/verify_authenticode.py dist\Unlock dist\UnlockSetup.exe --publisher "$env:RELEASE_PUBLISHER"

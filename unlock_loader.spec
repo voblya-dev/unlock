@@ -55,4 +55,5 @@ exe = EXE(
     disable_windowed_traceback=False,
     uac_admin=False,
     icon="assets/unlock-mask.ico" if (ROOT / "assets" / "unlock-mask.ico").exists() else None,
+    version="assets/unlock_setup_version_info.txt" if (ROOT / "assets" / "unlock_setup_version_info.txt").exists() else None,
 )
