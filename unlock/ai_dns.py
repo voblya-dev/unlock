@@ -113,17 +113,18 @@ $snapshot = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{state}
 $v4 = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{v4}')) | ConvertFrom-Json
 $v6 = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{v6}')) | ConvertFrom-Json
 foreach ($item in @($snapshot)) {{
-    foreach ($family in @('IPv4', 'IPv6')) {{
-        if ({'$true' if restore else '$false'}) {{
-            $servers = @($item.($family.ToLower())) | Where-Object {{ $_ }}
-        }} else {{
-            $servers = if ($family -eq 'IPv4') {{ @($v4) }} else {{ @($v6) }}
-        }}
-        if ($servers.Count -gt 0) {{
-            Set-DnsClientServerAddress -InterfaceIndex ([int]$item.index) -AddressFamily $family -ServerAddresses $servers
-        }} else {{
-            Set-DnsClientServerAddress -InterfaceIndex ([int]$item.index) -AddressFamily $family -ResetServerAddresses
-        }}
+    # Set-DnsClientServerAddress has no address-family parameter on supported
+    # Windows 10/11 builds. It accepts both IPv4 and IPv6 servers in one list
+    # and applies each address family to the interface itself.
+    if ({'$true' if restore else '$false'}) {{
+        $servers = @($item.ipv4) + @($item.ipv6) | Where-Object {{ $_ }}
+    }} else {{
+        $servers = @($v4) + @($v6)
+    }}
+    if ($servers.Count -gt 0) {{
+        Set-DnsClientServerAddress -InterfaceIndex ([int]$item.index) -ServerAddresses $servers
+    }} else {{
+        Set-DnsClientServerAddress -InterfaceIndex ([int]$item.index) -ResetServerAddresses
     }}
 }}
 Clear-DnsClientCache

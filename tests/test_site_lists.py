@@ -4,13 +4,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from unlock.ai_hosts import (
     AI_PROTECTED_HOSTS,
     _bundle_looks_useful,
     _filter_hosts_bundle,
 )
-from unlock.ai_dns import _load_state, _remove_state, _save_state
+from unlock.ai_dns import _apply_resolvers, _load_state, _remove_state, _save_state
 from unlock.host_overrides import (
     AI_BEGIN,
     AI_END,
@@ -70,6 +71,14 @@ class AiDnsStateTests(unittest.TestCase):
             self.assertEqual(_load_state(state), snapshot)
             _remove_state(state)
             self.assertIsNone(_load_state(state))
+
+    def test_dns_apply_uses_cross_version_powershell_syntax(self) -> None:
+        snapshot = [{"index": 7, "ipv4": ["192.0.2.1"], "ipv6": ["2001:db8::1"]}]
+        with patch("unlock.ai_dns._run_powershell") as run:
+            _apply_resolvers(snapshot, restore=False)
+        script = run.call_args.args[0]
+        self.assertIn("Set-DnsClientServerAddress -InterfaceIndex", script)
+        self.assertNotIn("-AddressFamily", script)
 
 
 class SiteListStorageTests(unittest.TestCase):

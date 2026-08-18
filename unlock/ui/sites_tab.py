@@ -601,8 +601,20 @@ class SitesTab(SeascapePage):
         worker = SiteListsWorker(self._manager, action, payload)
         worker.completed.connect(self._on_action_completed)
         worker.failed.connect(self._on_action_failed)
+        # completed/failed are emitted inside run(). Keep the Python wrapper
+        # alive until QThread has actually stopped; clearing it from either
+        # slot destroys a still-running thread and Qt aborts the whole app.
+        worker.finished.connect(self._finish_worker)
+        worker.finished.connect(worker.deleteLater)
         self._worker = worker
         worker.start()
+
+    @pyqtSlot()
+    def _finish_worker(self) -> None:
+        # This slot belongs to the GUI object, so Qt queues it until the worker
+        # thread has finished. Do not replace it with a lambda: that lambda has
+        # no QObject affinity and can run on the worker thread itself.
+        self._worker = None
 
     @pyqtSlot(str)
     def _show_notice(self, message: str) -> None:
@@ -613,7 +625,6 @@ class SitesTab(SeascapePage):
 
     @pyqtSlot(str, object)
     def _on_action_completed(self, action: str, result: ListUpdateResult | tuple) -> None:
-        self._worker = None
         elevation_needed = False
         source = ""
         ai_error = ""
@@ -665,7 +676,6 @@ class SitesTab(SeascapePage):
 
     @pyqtSlot(str, str)
     def _on_action_failed(self, _action: str, message: str) -> None:
-        self._worker = None
         self.reload()
         self._controller.error.emit(message)
 
