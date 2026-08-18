@@ -8,12 +8,11 @@ main window is shown.  The normal UI deliberately runs without elevation.
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import sys
-import threading
 
-from PyQt6.QtCore import QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -21,11 +20,10 @@ from unlock import logger
 from unlock.config import Config
 from unlock.constants import APP_NAME
 from unlock.controller import Controller
-from unlock.defender import remove_legacy_exclusion
 from unlock.dpi_engine import is_admin
 from unlock.ui import i18n, icons, theme
 from unlock.ui.main_window import MainWindow
-from unlock import vpn_engine
+from unlock.zapret_update import bootstrap as update_zapret
 
 _IPC_KEY = f"{APP_NAME}-single-instance"
 
@@ -53,7 +51,7 @@ def _offer_elevation(parent: MainWindow, message: str) -> None:
     common malware heuristic.  WinDivert still needs it, so keep the UAC
     request explicit and narrowly tied to the user's Connect action.
     """
-    if message != "Restart Unlock as Administrator — WinDivert needs elevation." or is_admin():
+    if "WinDivert needs elevation." not in message or is_admin():
         return
     dialog = QMessageBox(parent)
     dialog.setIcon(QMessageBox.Icon.Information)
@@ -100,46 +98,6 @@ def _claim_single_instance(app: QApplication) -> QLocalServer | None:
     )
 
 
-def _warn_about_missing_vpn_components(parent: MainWindow) -> None:
-    """Tell the user when an antivirus or incomplete install removed an engine.
-
-    This deliberately does not alter Defender exclusions.  A missing executable
-    can be caused by quarantine, a partial update, or a manually altered
-    installation, so the user must make the security decision themselves.
-    """
-    missing = [
-        name for name, path in (
-            ("sing-box.exe", vpn_engine.singbox_path()),
-            ("xray.exe", vpn_engine.xray_path()),
-            ("wireproxy.exe", vpn_engine.wireproxy_path()),
-        )
-        if path is None
-    ]
-    if not missing:
-        return
-
-    names = ", ".join(missing)
-    log = logger.get_logger("main")
-    log.warning("Required VPN components are missing: %s", names)
-
-    dialog = QMessageBox(parent)
-    dialog.setIcon(QMessageBox.Icon.Warning)
-    dialog.setWindowTitle(i18n.tr("VPN component missing"))
-    dialog.setText(i18n.tr("%s is missing, so some VPN protocols cannot connect.") % names)
-    dialog.setInformativeText(i18n.tr(
-        "Windows Security may have quarantined the file. Open it to review and "
-        "restore the file only if you trust this Unlock installation; otherwise reinstall Unlock."
-    ))
-    open_security = dialog.addButton(
-        i18n.tr("Open Windows Security"), QMessageBox.ButtonRole.ActionRole
-    )
-    dialog.addButton(QMessageBox.StandardButton.Close)
-    dialog.exec()
-    if dialog.clickedButton() is open_security:
-        if not QDesktopServices.openUrl(QUrl("windowsdefender:")):
-            log.warning("Could not open Windows Security")
-
-
 def main() -> int:
     # Frozen builds are console-less: a native crash (fail-fast in Qt6Core,
     # e.g. 0xc0000409) never hits an excepthook, so dump fault stacks to the
@@ -156,6 +114,8 @@ def main() -> int:
 
     logger.setup_logging(logging.INFO)
     log = logger.get_logger("main")
+    update = update_zapret()
+    log.info("Zapret startup source: %s %s", update.source, update.version)
 
     # Qt fatal messages (qFatal / qCritical) never reach stdout in frozen GUI
     # builds; route them into the log so a crash is diagnosable.
@@ -214,14 +174,6 @@ def main() -> int:
         log.info("Another instance is already running, exiting")
         return 0
 
-    if not is_admin():
-        log.warning(
-            "Running as a standard user — DPI bypass asks for elevation only "
-            "when the user starts it. The Telegram tunnel still works."
-        )
-    else:
-        remove_legacy_exclusion()
-
     controller = Controller()
     app.aboutToQuit.connect(controller.shutdown)
     window = MainWindow(controller)
@@ -236,21 +188,11 @@ def main() -> int:
         log.info("Starting minimised to tray")
     else:
         window.show()
-        # Wait until the main window has painted so the warning is not hidden
-        # behind the first frame on slower Windows machines.
-        QTimer.singleShot(250, lambda: _warn_about_missing_vpn_components(window))
 
     def bootstrap() -> None:
-        # A tunnel service left behind by a crash still owns the default route,
-        # so the machine would be routing through an adapter with nothing on the
-        # other end. Off the UI thread: removing it can take seconds.
-        threading.Thread(target=controller.awg.stop, daemon=True).start()
-        if controller.needs_benchmark:
-            window._restore_window()
-            window.run_benchmark(first_run=not controller.config.get("first_run_done"))
-        if controller.config.get("auto_connect_on_launch"):
-            controller.connect()
-        controller.autostart_vpn()
+        # Zapret and the Telegram bridge are the only services started by
+        # Unlock 2.  There is no VPN adapter or background VPN lifecycle.
+        controller.connect()
 
     QTimer.singleShot(400, bootstrap)  # let the window paint first
 

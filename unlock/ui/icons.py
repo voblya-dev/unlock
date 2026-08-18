@@ -43,8 +43,7 @@ def make_icon(color: str, size: int = 64) -> QIcon:
 @lru_cache(maxsize=1)
 def app_icon() -> QIcon:
     """Use the same transparent mark in the window, taskbar and tray."""
-    # Windows renders window/tray marks at small sizes. Loading the dedicated
-    # transparent ICO avoids decoding the 4K master PNG on the first UI frame.
+    # Use the original mask consistently in the window and notification area.
     icon_file = BASE_DIR / "assets" / "unlock-mask.ico"
     if icon_file.exists():
         return QIcon(str(icon_file))

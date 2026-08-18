@@ -40,7 +40,6 @@ from .lighthouse_scene import LighthouseScene
 from .seascape import SeascapePage
 from .sites_tab import SitesTab
 from .split_tunnel_tab import SplitTunnelTab
-from .vpn_tab import VpnTab
 from .widgets import ColorSwatchPicker, ClippedPanel, ClippedStackedWidget, ElidedLabel, GamepadGlyph, MetricGlyph, NavButton, NoScrollComboBox, SignalGraph, Switch
 
 log = logger.get_logger("ui")
@@ -343,7 +342,7 @@ class MainWindow(QWidget):
         layout.setSpacing(4)
 
         nav_defs = list(zip(
-            ("home", "shield", "split", "list", "gear", "list"),
+            ("home", "split", "list", "gear", "list"),
             self._nav_labels(),
         ))
         self._nav_buttons: list[NavButton] = []
@@ -364,7 +363,6 @@ class MainWindow(QWidget):
         """Translated sidebar commands, styled consistently in all caps."""
         return [
             tr("Home").upper(),
-            tr("VPN").upper(),
             tr("Routes").upper(),
             tr("Lists").upper(),
             tr("Settings").upper(),
@@ -420,15 +418,12 @@ class MainWindow(QWidget):
 
     def _populate_pages(self) -> None:
         self._pages.addWidget(self._build_home_tab())       # 0
-        self._vpn_tab = VpnTab(self._controller)
-        self._vpn_tab.changed.connect(self._on_vpn_changed)
-        self._pages.addWidget(self._vpn_tab)                # 1
         self._split_tab = SplitTunnelTab(self._controller.split_tunnel)
-        self._pages.addWidget(self._split_tab)              # 2
+        self._pages.addWidget(self._split_tab)              # 1
         self._sites_tab = SitesTab(self._controller)
-        self._pages.addWidget(self._sites_tab)               # 3
-        self._pages.addWidget(self._build_settings_tab())   # 4
-        self._pages.addWidget(self._build_logs_tab())       # 5
+        self._pages.addWidget(self._sites_tab)              # 2
+        self._pages.addWidget(self._build_settings_tab())   # 3
+        self._pages.addWidget(self._build_logs_tab())       # 4
 
     def _rebuild_tabs(self) -> None:
         """Recreate every page so freshly translated labels take effect."""
@@ -658,9 +653,7 @@ class MainWindow(QWidget):
 
         self._appearance_card = self._build_appearance_card()
         engines = self._build_engines_card()
-        vpn = self._build_vpn_card()
         layout.addWidget(engines)
-        layout.addWidget(vpn)
         layout.addWidget(self._appearance_card)
 
         # --- paths
@@ -683,7 +676,7 @@ class MainWindow(QWidget):
         layout.addWidget(paths)
 
         layout.addStretch(1)
-        anim.stagger_in([startup, engines, vpn, self._appearance_card, paths])
+        anim.stagger_in([startup, engines, self._appearance_card, paths])
 
         # The window is fixed-size, so the settings stack has to scroll.
         scroll = QScrollArea()
@@ -726,13 +719,6 @@ class MainWindow(QWidget):
             lambda v: self._controller.config.set("auto_connect_on_launch", v)
         )
         layout.addWidget(self._cb_autoconnect)
-
-        self._cb_vpn = Switch(tr("Turn my VPN on automatically"))
-        self._cb_vpn.setToolTip(
-            tr("Brings up the selected server on the VPN tab at launch.")
-        )
-        self._cb_vpn.toggled.connect(self._on_vpn_toggled)
-        layout.addWidget(self._cb_vpn)
 
         self._cb_sounds = Switch(tr("Play a sound on connect and disconnect"))
         self._cb_sounds.toggled.connect(self._on_sounds_toggled)
@@ -929,10 +915,6 @@ class MainWindow(QWidget):
         self._act_toggle.triggered.connect(self._controller.toggle)
         menu.addAction(self._act_toggle)
 
-        self._act_vpn = QAction(tr("Connect VPN"), menu)
-        self._act_vpn.triggered.connect(self._controller.vpn_toggle)
-        menu.addAction(self._act_vpn)
-
         show = QAction(tr("Show window"), menu)
         show.triggered.connect(self._restore_window)
         menu.addAction(show)
@@ -962,9 +944,6 @@ class MainWindow(QWidget):
     def _wire_controller(self) -> None:
         c = self._controller
         c.state_changed.connect(self._apply_state)
-        # The VPN runs on its own switch, so the Home metric has to follow it
-        # independently of the main connect state.
-        c.vpn_state_changed.connect(self._apply_vpn_state)
         c.status_message.connect(self._on_status_message)
         c.latency_changed.connect(self._on_latency)
         c.error.connect(self._on_error)
@@ -986,9 +965,6 @@ class MainWindow(QWidget):
             (self._cb_tg_auto, cfg.get("telegram_auto_proxy", True)),
             (self._cb_tg_ftls, cfg.get("telegram_fake_tls", True)),
             (self._cb_game, cfg.get("game_filter", False)),
-            (self._cb_vpn, cfg.get("enable_vpn", False)),
-            (self._cb_vpn_proxy, cfg.get("vpn_system_proxy", True)),
-            (self._cb_vpn_tun, cfg.get("vpn_tun", True)),
             (self._cb_sounds, cfg.get("sounds", True)),
         ):
             widget.blockSignals(True)
@@ -996,7 +972,6 @@ class MainWindow(QWidget):
             widget.blockSignals(False)
 
         self._select_combo(self._combo_retest, int(cfg.get("auto_retest_days") or 0))
-        self._cb_vpn_proxy.setEnabled(not cfg.get("vpn_tun", True))
         self._select_combo(self._combo_theme, cfg.get("theme", theme.SYSTEM))
         self._swatch_accent.set_accent(cfg.get("accent", theme.DEFAULT_ACCENT))
         self._select_combo(self._combo_language, cfg.get("language", i18n.SYSTEM))
@@ -1121,15 +1096,6 @@ class MainWindow(QWidget):
 
         self._refresh_metrics()
 
-    @pyqtSlot(object)
-    def _apply_vpn_state(self, state: State) -> None:
-        """The VPN has its own lifecycle, so the tray entry tracks it separately."""
-        self._act_vpn.setText(
-            tr("Disconnect VPN") if state is State.ACTIVE else tr("Connect VPN")
-        )
-        self._act_vpn.setEnabled(state not in (State.CONNECTING, State.DISCONNECTING))
-        self._refresh_metrics()
-
     def _on_telegram_clicked(self, event) -> None:
         if event.button() is not Qt.MouseButton.LeftButton:
             return
@@ -1204,23 +1170,11 @@ class MainWindow(QWidget):
         self._rebuild_tabs()
         self._rebuild_tray_labels()
 
-    def _on_vpn_toggled(self, enabled: bool) -> None:
-        self._controller.config.set("enable_vpn", enabled)
-        self._refresh_metrics()
-
-    def _on_vpn_tun_toggled(self, enabled: bool) -> None:
-        self._controller.config.set("vpn_tun", enabled)
-        self._cb_vpn_proxy.setEnabled(not enabled)
-
     def _on_sounds_toggled(self, enabled: bool) -> None:
         self._controller.config.set("sounds", enabled)
         sounds.set_enabled(enabled)
         if enabled:
             sounds.connected()
-
-    @pyqtSlot()
-    def _on_vpn_changed(self) -> None:
-        self._refresh_metrics()
 
     def _restyle(self) -> None:
         """Re-derive the palette and repaint everything that caches a colour."""
@@ -1239,7 +1193,6 @@ class MainWindow(QWidget):
 
         # Tray icons and the latency label paint from palette constants directly.
         self._apply_state(self._controller.state)
-        self._vpn_tab.restyle()
         self._split_tab.restyle()
         self._sites_tab.restyle()
         self._power.restyle()

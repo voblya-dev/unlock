@@ -29,6 +29,7 @@ from unlock.site_lists import (
     parse_rule,
 )
 from unlock.strategies import expand_args, find_strategy, load_strategies
+from unlock.constants import LISTS_DIR
 
 
 class SiteRuleParsingTests(unittest.TestCase):
@@ -163,7 +164,7 @@ class ZapretArgumentTests(unittest.TestCase):
         self.assertEqual(len(args), 7)
         self.assertTrue(args[0].endswith("zapret-lists\\list-general.txt"))
         self.assertTrue(args[1].endswith("zapret-lists\\list-general-user.txt"))
-        self.assertIn("bin\\zapret\\lists\\list-google.txt", args[3])
+        self.assertIn(str(LISTS_DIR).lower(), args[3].lower())
         self.assertTrue(args[4].endswith("zapret-lists\\ipset-all.txt"))
         self.assertFalse(any("unlock-hostlist.txt" in arg for arg in args))
 

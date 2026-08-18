@@ -31,6 +31,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .constants import (
+    BIN_DIR,
     CONFIGS_DIR,
     LISTS_DIR,
     ZAPRET_DIR,
@@ -48,6 +49,7 @@ log = get_logger("strategies")
 GAME_FILTER_OFF = "12"
 GAME_FILTER_ON = "1024-65535"
 STRATEGY_MANIFEST = CONFIGS_DIR / "zapret-strategies.json"
+FALLBACK_CONFIGS_DIR = BIN_DIR / "zapret" / "configs"
 
 
 @dataclass(frozen=True)
@@ -133,11 +135,12 @@ def load_raw_configs() -> tuple[tuple[str, tuple[str, ...]], ...]:
     packaged = _read_manifest()
     if packaged:
         return packaged
-    if not CONFIGS_DIR.is_dir():
+    source_dir = CONFIGS_DIR if CONFIGS_DIR.is_dir() else FALLBACK_CONFIGS_DIR
+    if not source_dir.is_dir():
         return ()
 
     configs = []
-    for path in sorted(CONFIGS_DIR.glob("general*.bat"), key=_sort_key):
+    for path in sorted(source_dir.glob("general*.bat"), key=_sort_key):
         args = _read_winws_args(path)
         if args:
             configs.append((path.stem, tuple(args)))

@@ -35,7 +35,6 @@ from .constants import TELEGRAM_FAKE_TLS_DOMAIN, TELEGRAM_PROXY_PORT
 from .logger import get_logger
 from .tgwsproxy import tg_ws_proxy
 from .tgwsproxy.config import proxy_config
-from .tgwsproxy.pool import cf_worker_pool, ws_pool
 from .tgwsproxy.stats import stats
 
 log = get_logger("telegram")
@@ -91,28 +90,6 @@ class TelegramProxy:
         return f"{base}dd{self.secret}"
 
     # ------------------------------------------------------------- control
-
-    def set_upstream_socks(self, endpoint: tuple[str, int] | None) -> None:
-        """Route every upstream connection through a SOCKS5 proxy, or stop doing so.
-
-        The bridge reads this off the shared config object, so it can be flipped
-        while the listener is running. Pooled connections were dialled the old
-        way, so they are dropped rather than handed to the next session.
-        """
-        if proxy_config.upstream_socks == endpoint:
-            return
-        proxy_config.upstream_socks = endpoint
-        log.info("Bridge upstream: %s", f"socks5://{endpoint[0]}:{endpoint[1]}"
-                 if endpoint else "direct")
-
-        loop = self._loop
-        if loop is not None:
-            loop.call_soon_threadsafe(self._reset_pools)
-
-    @staticmethod
-    def _reset_pools() -> None:
-        ws_pool.reset()
-        cf_worker_pool.reset()
 
     def start(self, secret: str | None = None, *, fake_tls: bool = False) -> None:
         """Bind the listener. A caller-supplied secret keeps the tg:// link

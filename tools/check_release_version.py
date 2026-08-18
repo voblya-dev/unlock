@@ -14,8 +14,6 @@ ROOT = Path(__file__).resolve().parent.parent
 
 VERSION_FILES = {
     ROOT / "unlock" / "constants.py": "APP_VERSION",
-    ROOT / "loader" / "config.py": "APP_VERSION",
-    ROOT / "loader" / "__init__.py": "LOADER_VERSION",
 }
 
 VERSION_RESOURCE_FILES = (

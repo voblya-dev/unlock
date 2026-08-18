@@ -6,7 +6,7 @@ import socket as _socket
 import threading
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 from urllib.request import Request
 
 from .balancer import balancer
@@ -73,10 +73,6 @@ class ProxyConfig:
     fake_tls_domain: str = ''
     proxy_protocol: bool = False
     force_test_dc: bool = False
-    # (host, port) of a SOCKS5 proxy every upstream connection is dialled
-    # through, or None to use the machine's default route. Set while the VPN
-    # is up so Telegram follows the tunnel like it does in other clients.
-    upstream_socks: Optional[Tuple[str, int]] = None
 
 
 proxy_config = ProxyConfig()

@@ -24,13 +24,8 @@ from .sounds import connected as _sound_connected
 from .sounds import disconnected as _sound_disconnected
 from .sounds import failed as _sound_failed
 from .strategies import find_strategy, load_strategies
-from .system_proxy import SystemProxy, restore_orphaned
 from .telegram_proxy import TelegramProxy, TelegramProxyError
 from .tunnel_stats import TunnelStats
-from .vpn_engine import VpnEngine, VpnEngineError
-from . import awg_engine
-from .awg_engine import AwgEngine
-from .vpn_links import Profile
 from . import telegram_client
 from .split_tunnel import SplitTunnelingManager
 from .site_lists import SiteListManager
@@ -376,13 +371,6 @@ class Controller(QObject):
         self.site_lists = SiteListManager()
         self.dpi = DpiEngine()
         self.telegram = TelegramProxy(TELEGRAM_PROXY_PORT)
-        self.vpn = VpnEngine()
-        self.awg = AwgEngine()
-        self._system_proxy = SystemProxy()
-        # A previous run that was killed rather than closed leaves the machine
-        # pointed at a local port nothing listens on, which presents as the whole
-        # network being down.
-        restore_orphaned()
         self._state = State.IDLE
         self._vpn_state = State.IDLE
         self._latency_worker: LatencyWorker | None = None
@@ -587,9 +575,6 @@ class Controller(QObject):
             parts.append(f"DPI: {self.dpi.strategy.name}")
         if self.telegram.running:
             parts.append(f"TG relay via 127.0.0.1:{self.telegram.port}")
-        vpn_profile = self.vpn.profile or self.awg.profile
-        if vpn_profile is not None:
-            parts.append(f"VPN: {vpn_profile.name}")
         return " | ".join(parts) or "Inactive"
 
     def autostart_vpn(self) -> None:
@@ -743,7 +728,6 @@ class Controller(QObject):
                 interrupt()
         self._latency_worker = self._vpn_ping_worker = self._tg_watcher = None
         self._benchmark_worker = self._aborted_benchmark = None
-        self._stop_vpn()
         self._stop_engines()
         for worker in workers:
             is_running = getattr(worker, "isRunning", None)
@@ -772,7 +756,23 @@ class Controller(QObject):
                     )
                 strategy = available[0]
                 log.warning("No saved strategy, defaulting to %s", strategy.name)
-            self.dpi.start(strategy)
+            try:
+                self.dpi.start(strategy)
+            except DpiEngineError as exc:
+                # Upstream releases occasionally retire an experimental preset
+                # while a user still has it selected from an older pack.  Do
+                # not leave the application unusable: retry the pack's stable
+                # base profile and persist that recovery choice.
+                stable = find_strategy("general", self.game_filter)
+                if stable is None or stable.name == strategy.name:
+                    raise
+                log.warning(
+                    "Zapret preset %s failed (%s); retrying %s",
+                    strategy.name, exc, stable.name,
+                )
+                self.dpi.start(stable)
+                strategy = stable
+                self.config.set("dpi_strategy", stable.name)
             started.append(f"DPI ({strategy.name})")
 
         if self.config.get("enable_telegram", True):

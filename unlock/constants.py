@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "1.1.8"
+APP_VERSION = "2.0.0"
 
 # ---------------------------------------------------------------- paths
 
@@ -43,7 +43,9 @@ CONFIG_PATH = DATA_DIR / "config.json"
 LOG_PATH = LOG_DIR / "unlock.log"
 
 BIN_DIR = BASE_DIR / "bin"
-ZAPRET_DIR = BIN_DIR / "zapret"
+# The bundled pack is copied and refreshed into this writable location by
+# zapret_update.bootstrap before the controller starts.
+ZAPRET_DIR = DATA_DIR / "zapret"
 WINWS_EXE = ZAPRET_DIR / "winws.exe"
 LISTS_DIR = ZAPRET_DIR / "lists"
 CONFIGS_DIR = ZAPRET_DIR / "configs"

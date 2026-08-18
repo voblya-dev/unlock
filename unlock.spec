@@ -8,11 +8,8 @@ Build:
 Output: dist/Unlock/Unlock.exe (one folder, no console, standard-user UI).
 
 Deliberately one-folder rather than one-file. A one-file build unpacks the whole
-payload into %TEMP% on every launch, and Windows Defender's ML heuristics score
-that — a self-extracting binary dropping network executables — as malware: it
-quarantined the bundled wireproxy.exe out of both the source tree and the temp
-dir. One-folder writes those files once, so a user who whitelists them keeps
-them whitelisted, and startup no longer pays for the extraction.
+payload into %TEMP% on every launch; keeping the bundled fallback zapret pack
+beside the executable avoids that startup churn.
 """
 
 import json
@@ -27,7 +24,8 @@ block_cipher = None
 # the build works regardless of the shell's working directory.
 ROOT = Path(SPECPATH)  # noqa: F821
 
-# Everything under bin/ ships verbatim except the upstream command scripts.
+# Only the fallback zapret pack ships.  VPN engines are intentionally excluded:
+# Unlock 2 contains no VPN client, tunnel adapter, or system proxy.
 # The zapret pack's ``general*.bat`` files are source material, but Unlock
 # never executes them. Shipping CMD scripts in an archive is unnecessary and
 # is a frequent Defender Script/Wacatac trigger, so their argument vectors are
@@ -36,6 +34,8 @@ binaries_and_data = []
 bin_dir = ROOT / "bin"
 for path in bin_dir.rglob("*") if bin_dir.exists() else []:
     if path.is_file():
+        if not path.is_relative_to(bin_dir / "zapret"):
+            continue
         if path.suffix.lower() in {".bat", ".cmd", ".ps1"}:
             continue
         binaries_and_data.append((str(path), str(path.parent.relative_to(ROOT))))
@@ -92,26 +92,6 @@ strategy_manifest.write_text(
 )
 binaries_and_data.append((str(strategy_manifest), "bin/zapret/configs"))
 
-# The VPN engines: sing-box covers ordinary v2ray links; Xray adds VLESS mKCP
-# and XHTTP; wireproxy covers WireGuard and AmneziaWG as a SOCKS listener; and
-# amneziawg drives a real Wintun adapter for the same protocols so UDP works.
-# Without them the VPN tab can save servers but never bring a tunnel up, so a
-# build that omits them is not worth shipping.
-for engine, url in (
-    ("sing-box/sing-box.exe", "github.com/SagerNet/sing-box/releases"),
-    ("xray/xray.exe", "github.com/XTLS/Xray-core/releases"),
-    ("wireproxy/wireproxy.exe", "github.com/artem-russkikh/wireproxy-awg/releases"),
-    ("amneziawg/amneziawg.exe", "github.com/amnezia-vpn/amneziawg-windows-client/releases"),
-    # amneziawg.exe loads this by name from its own directory; without it the
-    # adapter cannot be created and TUN mode fails at runtime.
-    ("amneziawg/wintun.dll", "github.com/amnezia-vpn/amneziawg-windows-client/releases"),
-):
-    if not (bin_dir / engine).exists():
-        raise SystemExit(
-            f"bin/{engine} is missing — the built exe could not run a VPN.\n"
-            f"Download the windows-amd64 build from {url}"
-        )
-
 # The vendored tg-ws-proxy is MIT; its licence has to travel with the binary.
 binaries_and_data.append(
     (str(ROOT / "unlock" / "tgwsproxy" / "LICENSE"), "unlock/tgwsproxy")
@@ -161,9 +141,8 @@ exe = EXE(
     upx=False,                  # UPX-packed WinDivert trips AV heuristics
     console=False,
     disable_windowed_traceback=False,
-    # The UI starts as a standard user.  It asks to restart elevated only after
-    # the user explicitly starts the WinDivert-based DPI mode.
-    uac_admin=False,
+    # Services launch immediately and winws needs this to load WinDivert.
+    uac_admin=True,
     icon="assets/unlock-mask.ico" if (ROOT / "assets" / "unlock-mask.ico").exists() else None,
     version="assets/unlock_version_info.txt" if (ROOT / "assets" / "unlock_version_info.txt").exists() else None,
 )
