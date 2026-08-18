@@ -10,6 +10,7 @@ from unlock.ai_hosts import (
     _bundle_looks_useful,
     _filter_hosts_bundle,
 )
+from unlock.ai_dns import _load_state, _remove_state, _save_state
 from unlock.host_overrides import (
     AI_BEGIN,
     AI_END,
@@ -50,11 +51,25 @@ class SiteRuleParsingTests(unittest.TestCase):
         self.assertIsNone(parse_rule("300.1.1.1"))
         self.assertIsNone(parse_rule("1.2.3.4/99"))
 
-    def test_import_drops_comments_and_blank_rows(self) -> None:
+    def test_import_accepts_inline_comments_and_hosts_rows(self) -> None:
         self.assertEqual(
-            parse_import_lines("\nexample.com\n# a comment\n1.2.3.4 # note\n  8.8.8.8  \n"),
-            ["example.com", "8.8.8.8"],
+            parse_import_lines(
+                "\nexample.com\n# a comment\n1.2.3.4 # note\n"
+                "0.0.0.0 blocked.example alias.blocked.example # hosts list\n  8.8.8.8  \n"
+            ),
+            ["example.com", "1.2.3.4", "blocked.example", "alias.blocked.example", "8.8.8.8"],
         )
+
+
+class AiDnsStateTests(unittest.TestCase):
+    def test_dns_snapshot_is_persisted_for_exact_restore(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root) / "ai-dns-state.json"
+            snapshot = [{"index": 7, "ipv4": ["192.0.2.1"], "ipv6": ["2001:db8::1"]}]
+            _save_state(snapshot, state)
+            self.assertEqual(_load_state(state), snapshot)
+            _remove_state(state)
+            self.assertIsNone(_load_state(state))
 
 
 class SiteListStorageTests(unittest.TestCase):

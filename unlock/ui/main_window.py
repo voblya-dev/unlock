@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import logger, sounds
+from .. import autostart
 from ..constants import APP_NAME, APP_VERSION, CONFIG_PATH, LOG_PATH
 from ..controller import Controller, State
 from ..strategies import load_strategies
@@ -711,6 +712,13 @@ class MainWindow(QWidget):
         )
         layout.addWidget(self._cb_start_min)
 
+        self._cb_launch_at_sign_in = Switch(tr("Launch with Windows"))
+        self._cb_launch_at_sign_in.setToolTip(
+            tr("Starts Unlock minimised to the notification area after you sign in.")
+        )
+        self._cb_launch_at_sign_in.toggled.connect(self._on_launch_at_sign_in_toggled)
+        layout.addWidget(self._cb_launch_at_sign_in)
+
         self._cb_autoconnect = Switch(tr("Turn the bypass on automatically"))
         self._cb_autoconnect.setToolTip(
             tr("Presses the Home button for you as soon as Unlock is up.")
@@ -923,6 +931,17 @@ class MainWindow(QWidget):
         benchmark.triggered.connect(lambda: self.run_benchmark(first_run=False))
         menu.addAction(benchmark)
 
+        profiles = menu.addMenu(tr("DPI profile"))
+        current = self._controller.config.get("dpi_strategy")
+        for strategy in load_strategies(self._controller.game_filter):
+            action = QAction(strategy.name, profiles)
+            action.setCheckable(True)
+            action.setChecked(strategy.name == current)
+            action.triggered.connect(
+                lambda checked=False, name=strategy.name: self._controller.set_dpi_strategy(name)
+            )
+            profiles.addAction(action)
+
         menu.addSeparator()
         quit_action = QAction(tr("Quit"), menu)
         quit_action.triggered.connect(self.quit_app)
@@ -959,6 +978,7 @@ class MainWindow(QWidget):
         cfg = self._controller.config
         for widget, value in (
             (self._cb_start_min, cfg.get("start_minimized", False)),
+            (self._cb_launch_at_sign_in, cfg.get("launch_at_sign_in", False)),
             (self._cb_autoconnect, cfg.get("auto_connect_on_launch", False)),
             (self._cb_dpi, cfg.get("enable_dpi", True)),
             (self._cb_tg, cfg.get("enable_telegram", True)),
@@ -1154,7 +1174,20 @@ class MainWindow(QWidget):
         anim.crossfade_text(self._detail, tr(message))
 
     def _on_strategy_picked(self, _index: int) -> None:
-        self._controller.config.set("dpi_strategy", self._combo_strategy.currentData())
+        selected = self._combo_strategy.currentData()
+        if not self._controller.set_dpi_strategy(selected):
+            self._select_combo(self._combo_strategy, self._controller.config.get("dpi_strategy"))
+
+    def _on_launch_at_sign_in_toggled(self, enabled: bool) -> None:
+        try:
+            autostart.set_enabled(enabled)
+        except OSError as exc:
+            self._cb_launch_at_sign_in.blockSignals(True)
+            self._cb_launch_at_sign_in.setChecked(not enabled)
+            self._cb_launch_at_sign_in.blockSignals(False)
+            self._controller.error.emit(str(exc))
+            return
+        self._controller.config.set("launch_at_sign_in", enabled)
 
     def _on_theme_picked(self, _index: int) -> None:
         self._controller.config.set("theme", self._combo_theme.currentData())

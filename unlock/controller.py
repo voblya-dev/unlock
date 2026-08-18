@@ -464,6 +464,29 @@ class Controller(QObject):
         log.info("Game filter %s", "on" if enabled else "off")
         return self.dpi.running
 
+    def set_dpi_strategy(self, name: str | None) -> bool:
+        """Persist a preset and immediately apply it when DPI is running.
+
+        Zapret-GUI restarts its service on a profile switch.  Merely updating a
+        combo box made Unlock show the new name while winws continued using the
+        old argument vector until a later reconnect.
+        """
+        if name is not None and find_strategy(name, self.game_filter) is None:
+            self.error.emit("Selected DPI strategy is not available")
+            return False
+        if name == self.config.get("dpi_strategy"):
+            return True
+        self.config.set("dpi_strategy", name)
+        if self.dpi.running:
+            self.restart_dpi(success_message="DPI profile switched")
+        elif self.state in (State.IDLE, State.ERROR) and self.config.get("enable_dpi", True):
+            # Match Zapret-GUI's profile picker: selecting a profile is enough
+            # to begin protection, not merely to stage it for a later click.
+            self.connect()
+        else:
+            self.status_message.emit("DPI profile saved — applies at next bypass start")
+        return True
+
     @property
     def fake_tls(self) -> bool:
         return bool(self.config.get("telegram_fake_tls", False))

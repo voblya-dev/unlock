@@ -143,12 +143,31 @@ def parse_rule(value: str) -> SiteRule | None:
 
 
 def parse_import_lines(text: str) -> list[str]:
-    """Return candidate lines, ignoring blank and comment-containing lines."""
-    return [
-        line.strip()
-        for line in text.splitlines()
-        if line.strip() and "#" not in line
-    ]
+    """Extract rules from ordinary host, domain and ipset text lists.
+
+    Public blocklists commonly use hosts syntax (``0.0.0.0 example.org``),
+    and hand-maintained lists often include an inline comment.  The old parser
+    discarded both formats wholesale, making a successful import appear to do
+    nothing.  winws needs the hostname rather than the placeholder address.
+    """
+    candidates: list[str] = []
+    for raw_line in text.lstrip("\ufeff").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        fields = line.split()
+        if len(fields) >= 2:
+            try:
+                ipaddress.ip_address(fields[0])
+            except ValueError:
+                # Do not silently turn an arbitrary prose line into a valid
+                # domain.  Keeping it intact lets the UI report it as invalid.
+                candidates.append(line)
+            else:
+                candidates.extend(fields[1:])
+        else:
+            candidates.append(fields[0])
+    return candidates
 
 
 def _atomic_write(path: Path, text: str) -> None:

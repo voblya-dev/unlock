@@ -30,7 +30,8 @@ from PyQt6.QtWidgets import (
 )
 
 from ..ai_hosts import AiHostsError, cached_complete_ai_bundle, refresh_ai_mappings
-from ..host_overrides import apply_ai_hosts, remove_ai_hosts_block, request_elevated
+from ..ai_dns import AiDnsPermissionError, disable_ai_dns, enable_ai_dns
+from ..host_overrides import request_elevated
 from ..site_lists import (
     HostMapping,
     ListUpdateResult,
@@ -76,8 +77,8 @@ class SiteListsWorker(QThread):
             elif self._action == "ai_on":
                 bundle = refresh_ai_mappings()
                 try:
-                    apply_ai_hosts(bundle.hosts_text)
-                except OSError:
+                    enable_ai_dns(bundle.hosts_text)
+                except (OSError, AiDnsPermissionError):
                     # Source runs may lack the normal application elevation.
                     elevation_needed = True
                 else:
@@ -90,8 +91,8 @@ class SiteListsWorker(QThread):
                 )
             elif self._action == "ai_off":
                 try:
-                    remove_ai_hosts_block()
-                except OSError:
+                    disable_ai_dns()
+                except (OSError, AiDnsPermissionError):
                     elevation_needed = True
                 else:
                     elevation_needed = False
@@ -108,8 +109,8 @@ class SiteListsWorker(QThread):
                     try:
                         bundle = refresh_ai_mappings()
                         try:
-                            apply_ai_hosts(bundle.hosts_text)
-                        except OSError:
+                            enable_ai_dns(bundle.hosts_text)
+                        except (OSError, AiDnsPermissionError):
                             result = (ListUpdateResult(changed=1), True, bundle.source, "")
                         else:
                             result = (ListUpdateResult(changed=1), False, bundle.source, "")
@@ -122,8 +123,8 @@ class SiteListsWorker(QThread):
                 # sync and updates the managed block before DPI is used.
                 bundle = cached_complete_ai_bundle() or refresh_ai_mappings()
                 try:
-                    apply_ai_hosts(bundle.hosts_text)
-                except OSError:
+                    enable_ai_dns(bundle.hosts_text)
+                except (OSError, AiDnsPermissionError):
                     result = (ListUpdateResult(changed=1), True, bundle.source, "")
                 else:
                     result = (ListUpdateResult(changed=1), False, bundle.source, "")
@@ -584,9 +585,9 @@ class SitesTab(SeascapePage):
             self,
             tr("AI services"),
             tr(
-                "AI services mode uses the complete hosts bundle from Zapret-GUI, "
+                "AI services mode uses the complete hosts bundle and DNS resolvers from Zapret-GUI, "
                 "including its non-AI and ad-block entries. It stays separate from your "
-                "zapret domain/IP lists and is written only inside Unlock's Windows hosts block. "
+                "zapret domain/IP lists; your current DNS is saved and restored when disabled. "
                 "Administrator confirmation may be requested. %s it?"
             ) % action,
             QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok,

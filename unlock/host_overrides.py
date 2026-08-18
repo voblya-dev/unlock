@@ -253,9 +253,13 @@ def run_helper(action: str) -> int:
         elif action == "remove":
             remove_hosts_block()
         elif action == "ai-apply":
-            apply_ai_hosts(load_cached_ai_hosts())
+            # Import here to avoid a module cycle: ai_dns uses the narrowly
+            # scoped hosts writer above, while this helper is its UAC entry.
+            from .ai_dns import enable_ai_dns
+            enable_ai_dns(load_cached_ai_hosts())
         elif action == "ai-remove":
-            remove_ai_hosts_block()
+            from .ai_dns import disable_ai_dns
+            disable_ai_dns()
         else:
             return 2
     except Exception as exc:  # noqa: BLE001 - report in log; the GUI stays alive
