@@ -7,6 +7,7 @@ import ctypes.wintypes as wintypes
 import subprocess
 import threading
 import time
+from collections import deque
 
 from .constants import STRATEGY_SETTLE_POLL, STRATEGY_SETTLE_TIMEOUT, WINWS_EXE, ZAPRET_DIR
 from .logger import get_logger
@@ -188,8 +189,9 @@ class DpiEngine:
             self._strategy = strategy
             if self._job is not None:
                 _assign_to_job(self._job, self._proc.pid)
+            output = deque(maxlen=12)
             self._reader = threading.Thread(
-                target=self._drain_output, args=(self._proc,), daemon=True
+                target=self._drain_output, args=(self._proc, output), daemon=True
             )
             self._reader.start()
 
@@ -200,9 +202,14 @@ class DpiEngine:
             while time.monotonic() < deadline:
                 if self._proc.poll() is not None:
                     code = self._proc.returncode
+                    if self._reader is not None:
+                        self._reader.join(timeout=0.25)
+                    detail = " | ".join(output) or "no diagnostic output"
                     self._proc = None
                     self._strategy = None
-                    raise DpiEngineError(f"winws exited immediately (code {code})")
+                    raise DpiEngineError(
+                        f"winws exited immediately (code {code}): {detail}"
+                    )
                 time.sleep(STRATEGY_SETTLE_POLL)
 
     def stop(self) -> None:
@@ -232,11 +239,12 @@ class DpiEngine:
             self._proc = None
             self._strategy = None
 
-    def _drain_output(self, proc: subprocess.Popen) -> None:
+    def _drain_output(self, proc: subprocess.Popen, output: deque[str]) -> None:
         """Pipe must be read or winws blocks once the buffer fills."""
         if proc.stdout is None:
             return
         for line in proc.stdout:
             line = line.rstrip()
             if line:
+                output.append(line)
                 log.debug("winws: %s", line)

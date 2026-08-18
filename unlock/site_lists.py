@@ -23,8 +23,10 @@ from .constants import (
     LISTS_DIR,
     SITE_LISTS_PATH,
     ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH,
+    ZAPRET_RUNTIME_EMPTY_HOSTLIST_EXCLUDE_PATH,
     ZAPRET_RUNTIME_HOSTLIST_PATH,
     ZAPRET_RUNTIME_IPSET_PATH,
+    ZAPRET_RUNTIME_EMPTY_IPSET_EXCLUDE_PATH,
     ZAPRET_USER_HOSTLIST_PATH,
     ZAPRET_USER_IPSET_PATH,
 )
@@ -187,6 +189,12 @@ class SiteListManager:
             runtime_empty_hostlist_path
             if runtime_empty_hostlist_path is not None
             else hostlist_path.parent / ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH.name
+        )
+        self.runtime_empty_hostlist_exclude_path = (
+            hostlist_path.parent / ZAPRET_RUNTIME_EMPTY_HOSTLIST_EXCLUDE_PATH.name
+        )
+        self.runtime_empty_ipset_exclude_path = (
+            ipset_path.parent / ZAPRET_RUNTIME_EMPTY_IPSET_EXCLUDE_PATH.name
         )
         self.base_hostlist_path = base_hostlist_path
         self.base_ipset_path = base_ipset_path
@@ -359,6 +367,8 @@ class SiteListManager:
         # actual user rules are already merged above, like Zapret-GUI's runtime
         # rebuild, so this companion file is intentionally empty.
         _atomic_write(self.runtime_empty_hostlist_path, "")
+        _atomic_write(self.runtime_empty_hostlist_exclude_path, "")
+        _atomic_write(self.runtime_empty_ipset_exclude_path, "")
         log.info(
             "Rebuilt zapret runtime lists: %s custom domains, %s custom IP entries",
             len(domains),

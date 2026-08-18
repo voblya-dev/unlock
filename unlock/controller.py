@@ -27,8 +27,13 @@ from .strategies import find_strategy, load_strategies
 from .telegram_proxy import TelegramProxy, TelegramProxyError
 from .tunnel_stats import TunnelStats
 from . import telegram_client
+from . import awg_engine
+from .awg_engine import AwgEngine
 from .split_tunnel import SplitTunnelingManager
 from .site_lists import SiteListManager
+from .system_proxy import SystemProxy
+from .vpn_engine import VpnEngine, VpnEngineError
+from .vpn_links import Profile
 
 log = get_logger("controller")
 
@@ -371,6 +376,9 @@ class Controller(QObject):
         self.site_lists = SiteListManager()
         self.dpi = DpiEngine()
         self.telegram = TelegramProxy(TELEGRAM_PROXY_PORT)
+        self.vpn = VpnEngine()
+        self.awg = AwgEngine()
+        self._system_proxy = SystemProxy()
         self._state = State.IDLE
         self._vpn_state = State.IDLE
         self._latency_worker: LatencyWorker | None = None

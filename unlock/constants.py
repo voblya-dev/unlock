@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 
 # ---------------------------------------------------------------- paths
 
@@ -60,6 +60,11 @@ ZAPRET_USER_IPSET_PATH = ZAPRET_USER_LISTS_DIR / "unlock-ipset.txt"
 ZAPRET_RUNTIME_HOSTLIST_PATH = ZAPRET_USER_LISTS_DIR / "list-general.txt"
 ZAPRET_RUNTIME_IPSET_PATH = ZAPRET_USER_LISTS_DIR / "ipset-all.txt"
 ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH = ZAPRET_USER_LISTS_DIR / "list-general-user.txt"
+# Upstream general*.bat profiles reference these companion lists. Zapret's
+# service script normally creates them; Unlock launches winws directly, so it
+# must provide equivalent empty files itself.
+ZAPRET_RUNTIME_EMPTY_HOSTLIST_EXCLUDE_PATH = ZAPRET_USER_LISTS_DIR / "list-exclude-user.txt"
+ZAPRET_RUNTIME_EMPTY_IPSET_EXCLUDE_PATH = ZAPRET_USER_LISTS_DIR / "ipset-exclude-user.txt"
 SITE_LISTS_PATH = DATA_DIR / "sites.json"
 HOSTS_BACKUP_PATH = DATA_DIR / "hosts.unlock.backup"
 AI_HOSTS_CACHE_PATH = DATA_DIR / "ai-hosts.txt"

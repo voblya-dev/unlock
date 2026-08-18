@@ -76,6 +76,14 @@ class SiteListStorageTests(unittest.TestCase):
         self.assertEqual(result.invalid, ("invalid host",))
         self.assertEqual(self.hostlist.read_text(encoding="utf-8"), "example.com\n")
         self.assertEqual(self.ipset.read_text(encoding="utf-8"), "1.2.3.0/24\n1.2.3.4\n")
+        self.assertEqual(
+            (self.hostlist.parent / "list-exclude-user.txt").read_text(encoding="utf-8"),
+            "",
+        )
+        self.assertEqual(
+            (self.ipset.parent / "ipset-exclude-user.txt").read_text(encoding="utf-8"),
+            "",
+        )
         document = json.loads(self.store.read_text(encoding="utf-8"))
         self.assertEqual(document["version"], 1)
         self.assertEqual(len(document["rules"]), 3)
@@ -159,13 +167,17 @@ class ZapretArgumentTests(unittest.TestCase):
             "--hostlist=%LISTS%list-google.txt",
             "--ipset=%LISTS%ipset-all.txt",
             "--hostlist-exclude=%LISTS%list-exclude.txt",
+            "--hostlist-exclude=%LISTS%list-exclude-user.txt",
             "--ipset-exclude=%LISTS%ipset-exclude.txt",
+            "--ipset-exclude=%LISTS%ipset-exclude-user.txt",
         ])
-        self.assertEqual(len(args), 7)
+        self.assertEqual(len(args), 9)
         self.assertTrue(args[0].endswith("zapret-lists\\list-general.txt"))
         self.assertTrue(args[1].endswith("zapret-lists\\list-general-user.txt"))
         self.assertIn(str(LISTS_DIR).lower(), args[3].lower())
         self.assertTrue(args[4].endswith("zapret-lists\\ipset-all.txt"))
+        self.assertTrue(args[6].endswith("zapret-lists\\list-exclude-user.txt"))
+        self.assertTrue(args[8].endswith("zapret-lists\\ipset-exclude-user.txt"))
         self.assertFalse(any("unlock-hostlist.txt" in arg for arg in args))
 
     def test_every_shipped_strategy_uses_runtime_user_lists(self) -> None:
@@ -179,6 +191,10 @@ class ZapretArgumentTests(unittest.TestCase):
             )
             self.assertTrue(
                 any("zapret-lists\\ipset-all.txt" in arg for arg in args),
+                strategy.name,
+            )
+            self.assertFalse(
+                any("%lists%list-exclude-user.txt" in arg for arg in args),
                 strategy.name,
             )
         self.assertIsNone(find_strategy("removed-local-profile"))

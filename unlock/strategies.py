@@ -36,8 +36,10 @@ from .constants import (
     LISTS_DIR,
     ZAPRET_DIR,
     ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH,
+    ZAPRET_RUNTIME_EMPTY_HOSTLIST_EXCLUDE_PATH,
     ZAPRET_RUNTIME_HOSTLIST_PATH,
     ZAPRET_RUNTIME_IPSET_PATH,
+    ZAPRET_RUNTIME_EMPTY_IPSET_EXCLUDE_PATH,
 )
 from .logger import get_logger
 
@@ -88,8 +90,12 @@ def _expand(token: str, game_filter: bool) -> str:
         return token.split("=", 1)[0] + f"={ZAPRET_RUNTIME_HOSTLIST_PATH}"
     if normalized.endswith("%lists%list-general-user.txt"):
         return token.split("=", 1)[0] + f"={ZAPRET_RUNTIME_EMPTY_HOSTLIST_PATH}"
+    if normalized.endswith("%lists%list-exclude-user.txt"):
+        return token.split("=", 1)[0] + f"={ZAPRET_RUNTIME_EMPTY_HOSTLIST_EXCLUDE_PATH}"
     if normalized.endswith("%lists%ipset-all.txt"):
         return token.split("=", 1)[0] + f"={ZAPRET_RUNTIME_IPSET_PATH}"
+    if normalized.endswith("%lists%ipset-exclude-user.txt"):
+        return token.split("=", 1)[0] + f"={ZAPRET_RUNTIME_EMPTY_IPSET_EXCLUDE_PATH}"
     return (
         token.replace("%BIN%", f"{ZAPRET_DIR}\\")
         .replace("%LISTS%", f"{LISTS_DIR}\\")
@@ -135,7 +141,14 @@ def load_raw_configs() -> tuple[tuple[str, tuple[str, ...]], ...]:
     packaged = _read_manifest()
     if packaged:
         return packaged
-    source_dir = CONFIGS_DIR if CONFIGS_DIR.is_dir() else FALLBACK_CONFIGS_DIR
+    try:
+        source_dir = CONFIGS_DIR if CONFIGS_DIR.is_dir() else FALLBACK_CONFIGS_DIR
+    except OSError as exc:
+        # A previous elevated self-update can leave AppData owned by the
+        # administrator.  The bypass must still be able to use its bundled
+        # presets when the writable update directory cannot be inspected.
+        log.warning("Cannot access updated zapret presets (%s); using bundled copy", exc)
+        source_dir = FALLBACK_CONFIGS_DIR
     if not source_dir.is_dir():
         return ()
 

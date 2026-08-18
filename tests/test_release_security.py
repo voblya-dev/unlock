@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
+from unlock.constants import APP_VERSION
+
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -49,7 +51,7 @@ class ReleaseSecurityTests(unittest.TestCase):
     def test_version_resource_matches_release_version(self) -> None:
         for name in ("unlock_version_info.txt", "unlock_setup_version_info.txt"):
             source = (ROOT / "assets" / name).read_text(encoding="utf-8")
-            self.assertIn("ProductVersion', u'2.0.0'", source)
+            self.assertIn(f"ProductVersion', u'{APP_VERSION}'", source)
 
 
 if __name__ == "__main__":
