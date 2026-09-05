@@ -35,6 +35,7 @@ class ReleaseSecurityTests(unittest.TestCase):
         self.assertNotIn("\n[Code]", script)
         self.assertIn("AppId=", script)
         self.assertIn("PrivilegesRequired=", script)
+        self.assertIn("runascurrentuser", script)
         self.assertIn("build_inno.py", workflow)
         self.assertIn("Unlock-*-Setup.exe", workflow)
         self.assertNotIn("UnlockInstaller.msi", workflow)

@@ -38,7 +38,7 @@ from . import anim, i18n, icons, theme
 from .benchmark_dialog import BenchmarkDialog
 from .i18n import tr
 from .lighthouse_scene import LighthouseScene
-from .seascape import SeascapePage
+from .seascape import SeascapePage, paint_content_panel
 from .sites_tab import SitesTab
 from .widgets import ColorSwatchPicker, ClippedPanel, ClippedStackedWidget, ElidedLabel, GamepadGlyph, MetricGlyph, NavButton, NoScrollComboBox, SignalGraph, Switch
 
@@ -102,6 +102,19 @@ class _Grip(QWidget):
         handle = self._window.windowHandle()
         if handle is not None:
             handle.startSystemResize(_QT_EDGES[self.edges])
+
+
+class _ContentPanel(QWidget):
+    """Right-hand content area. Paints the terminal canvas itself, clipped to
+    the rounded right-hand shape, so every page can stay transparent and no
+    tab (scrolled or not) ever squares off the window corners."""
+
+    def paintEvent(self, event) -> None:
+        paint_content_panel(self)
+        super().paintEvent(event)
+
+    def restyle(self) -> None:
+        self.update()
 
 _STATE_TEXT = {
     State.IDLE: ("Not protected", "Press the button to enable the bypass"),
@@ -378,7 +391,8 @@ class MainWindow(QWidget):
 
     def _build_right_panel(self) -> QWidget:
         """Content area: stacked pages for each nav section."""
-        panel = QWidget()
+        panel = _ContentPanel()
+        self._content_panel = panel
         panel.setObjectName("contentArea")
         panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
@@ -1222,6 +1236,7 @@ class MainWindow(QWidget):
 
         # Tray icons and the latency label paint from palette constants directly.
         self._apply_state(self._controller.state)
+        self._content_panel.restyle()
         self._sites_tab.restyle()
         self._power.restyle()
         self._game_glyph.update()

@@ -2,7 +2,7 @@
 ;
 ; Build from the repo root after PyInstaller:
 ;   py -m PyInstaller unlock.spec --noconfirm
-;   py -B tools/build_inno.py --version 2.1.0
+;   py -B tools/build_inno.py --version 2.1.1
 ;
 ; The version comes from the release tag via /DMyAppVersion; the fallback
 ; below only matters for local builds. No [Code] section on purpose: this is
@@ -10,7 +10,7 @@
 ; owned by Windows (Apps > Installed apps > Unlock).
 
 #ifndef MyAppVersion
-#define MyAppVersion "2.1.0"
+#define MyAppVersion "2.1.1"
 #endif
 #define MyAppName "Unlock"
 #define MyAppPublisher "voblya-dev"
@@ -59,4 +59,8 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; runascurrentuser is required: Unlock.exe carries a requireAdministrator
+; manifest (winws needs WinDivert), and launching it straight from an elevated
+; Setup fails with "CreateProcess failed; code 740". With this flag Windows
+; shows the normal UAC prompt instead of the error.
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runascurrentuser

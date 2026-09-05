@@ -41,6 +41,12 @@ log = get_logger("telegram")
 
 _BIND_TIMEOUT = 15.0
 
+# Startup upstream race: every candidate gets this long to answer. Slow enough
+# for a real handshake, short enough that a dead route fails fast instead of
+# stalling client connections behind the engine's sequential 5-10s timeouts.
+_RACE_TIMEOUT = 2.5
+_RACE_DCS = (1, 2, 3, 4, 5)
+
 
 class TelegramProxyError(RuntimeError):
     pass
@@ -117,6 +123,11 @@ class TelegramProxy:
             self.port,
             f"fake TLS as {self.fake_tls_domain}" if self.fake_tls_domain else "obfuscated",
         )
+        # Race the upstreams once in the background: the engine otherwise tries
+        # direct IPs and CF fronts sequentially with 5-10s timeouts per client
+        # connection, which is exactly the multi-second ping Telegram shows on
+        # networks where some routes are dead.
+        threading.Thread(target=self._race_upstreams, daemon=True).start()
 
     def stop(self) -> None:
         if self._loop is not None and self._stop_event is not None:
@@ -133,23 +144,111 @@ class TelegramProxy:
         log.info("Telegram proxy stopped")
 
     def check_upstream(self) -> bool:
-        """Verify a certificate-authenticated Telegram WebSocket endpoint."""
+        """Verify a certificate-authenticated Telegram WebSocket endpoint.
+
+        Direct DC IPs first, then the CF front the startup race pinned: on
+        networks where the direct route is dead but a front works, the bridge
+        is fine and the benchmark must not report it as broken.
+        """
+        from .tgwsproxy.balancer import balancer
         from .tgwsproxy.raw_websocket import RawWebSocket
 
+        candidates: list[tuple[str, str]] = []
         target = proxy_config.dc_redirects.get(2)
-        if not target:
+        if target:
+            candidates.append((target, "kws2.web.telegram.org"))
+        pinned = next(balancer.get_domains_for_dc(2), None)
+        if pinned:
+            host = f"kws2.{pinned}"
+            candidates.append((host, host))
+        if not candidates:
             return False
 
-        async def probe() -> None:
-            ws = await RawWebSocket.connect(target, "kws2.web.telegram.org", timeout=5.0)
+        async def probe(host: str, sni: str) -> None:
+            ws = await RawWebSocket.connect(host, sni, timeout=5.0)
             await ws.close()
 
+        for host, sni in candidates:
+            try:
+                asyncio.run(probe(host, sni))
+                return True
+            except Exception as exc:  # network failures are an expected diagnostic result
+                log.warning("Telegram upstream probe to %s failed: %s", host, exc)
+        return False
+
+    def _race_upstreams(self) -> None:
+        """Probe every upstream candidate in parallel and pin the winners.
+
+        Dead direct IPs are put on the engine's own cooldown list, so client
+        connections skip the 5s direct attempt and go straight to a fallback;
+        the fastest CF front is pinned per DC, so fallbacks try it first
+        instead of walking the whole pool with 10s timeouts. Connection pools
+        are warmed afterwards, making the first client connections instant.
+        """
+        from .tgwsproxy import tg_ws_proxy
+        from .tgwsproxy.balancer import balancer
+        from .tgwsproxy.config import proxy_config
+        from .tgwsproxy.pool import ws_pool
+        from .tgwsproxy.raw_websocket import RawWebSocket
+        from .tgwsproxy.utils import DC_DEFAULT_IPS
+
+        async def _probe(host: str, sni: str) -> float | None:
+            started = time.perf_counter()
+            try:
+                ws = await RawWebSocket.connect(host, sni, timeout=_RACE_TIMEOUT)
+            except Exception:
+                return None
+            try:
+                await ws.close()
+            except Exception:
+                pass
+            return (time.perf_counter() - started) * 1000.0
+
+        async def _main() -> tuple[list, list, list, list]:
+            targets = sorted(
+                {ip for ip in proxy_config.dc_redirects.values() if ip}
+                | set(DC_DEFAULT_IPS.values())
+            )
+            direct = await asyncio.gather(*[
+                _probe(ip, "kws2.web.telegram.org") for ip in targets
+            ])
+            domains = list(balancer.domains)
+            cf = await asyncio.gather(*[
+                _probe(f"kws2.{domain}", f"kws2.{domain}") for domain in domains
+            ])
+            return targets, direct, domains, cf
+
         try:
-            asyncio.run(probe())
-            return True
-        except Exception as exc:  # network failures are an expected diagnostic result
-            log.warning("Telegram upstream probe failed: %s", exc)
-            return False
+            targets, direct, domains, cf = asyncio.run(_main())
+        except Exception as exc:
+            log.warning("Telegram upstream race failed: %s", exc)
+            return
+
+        now = time.monotonic()
+        alive = [(ip, ms) for ip, ms in zip(targets, direct) if ms is not None]
+        for ip, ms in zip(targets, direct):
+            if ms is None:
+                # Same list the engine itself uses after a timed-out connect:
+                # skip the dead direct route for the next hour.
+                tg_ws_proxy.ip_fail_until[ip] = now + tg_ws_proxy.IP_FAIL_COOLDOWN
+        ranked = sorted(
+            ((domain, ms) for domain, ms in zip(domains, cf) if ms is not None),
+            key=lambda item: item[1],
+        )
+        if ranked:
+            best = ranked[0][0]
+            for dc in _RACE_DCS:
+                balancer.update_domain_for_dc(dc, best)
+        log.info(
+            "Telegram upstream race: direct=%s best_cf=%s",
+            ", ".join(f"{ip} {ms:.0f}ms" for ip, ms in alive) or "none",
+            f"{ranked[0][0]} {ranked[0][1]:.0f}ms" if ranked else "none",
+        )
+        if self._loop is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(ws_pool.warmup(), self._loop)
+            except Exception as exc:
+                log.warning("Telegram pool warmup failed: %s", exc)
     # ------------------------------------------------------------- internals
 
     def _wait_until_listening(self) -> None:
