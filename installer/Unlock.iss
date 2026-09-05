@@ -15,7 +15,7 @@
 #define MyAppName "Unlock"
 #define MyAppPublisher "voblya-dev"
 #define MyAppExeName "Unlock.exe"
-#define MyAppIcon "..\assets\unlock.ico"
+#define MyAppIcon "..\assets\unlock-mask.ico"
 
 [Setup]
 AppId={{B3FD7F51-E195-4878-A3E7-221B0D21BE51}

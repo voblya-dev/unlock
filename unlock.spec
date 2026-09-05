@@ -100,8 +100,8 @@ binaries_and_data.append(
 
 # The window and taskbar icon is loaded from this file at runtime, not only
 # stamped into the exe header by the EXE(icon=...) argument below.
-for asset in ("unlock.png", "unlock.ico", "unlock-white.ico", "unlock-fill.png",
-              "unlock-mask.png", "unlock-mask.ico"):
+for asset in ("unlock.png", "unlock-mask.ico", "unlock-white.ico", "unlock-fill.png",
+              "unlock-mask.png"):
     path = ROOT / "assets" / asset
     if path.exists():
         binaries_and_data.append((str(path), "assets"))
