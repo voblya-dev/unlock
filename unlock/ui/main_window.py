@@ -40,7 +40,6 @@ from .i18n import tr
 from .lighthouse_scene import LighthouseScene
 from .seascape import SeascapePage
 from .sites_tab import SitesTab
-from .split_tunnel_tab import SplitTunnelTab
 from .widgets import ColorSwatchPicker, ClippedPanel, ClippedStackedWidget, ElidedLabel, GamepadGlyph, MetricGlyph, NavButton, NoScrollComboBox, SignalGraph, Switch
 
 log = logger.get_logger("ui")
@@ -343,7 +342,7 @@ class MainWindow(QWidget):
         layout.setSpacing(4)
 
         nav_defs = list(zip(
-            ("home", "split", "list", "gear", "list"),
+            ("home", "list", "gear", "list"),
             self._nav_labels(),
         ))
         self._nav_buttons: list[NavButton] = []
@@ -364,7 +363,6 @@ class MainWindow(QWidget):
         """Translated sidebar commands, styled consistently in all caps."""
         return [
             tr("Home").upper(),
-            tr("Routes").upper(),
             tr("Lists").upper(),
             tr("Settings").upper(),
             tr("Logs").upper(),
@@ -419,12 +417,10 @@ class MainWindow(QWidget):
 
     def _populate_pages(self) -> None:
         self._pages.addWidget(self._build_home_tab())       # 0
-        self._split_tab = SplitTunnelTab(self._controller.split_tunnel)
-        self._pages.addWidget(self._split_tab)              # 1
         self._sites_tab = SitesTab(self._controller)
-        self._pages.addWidget(self._sites_tab)              # 2
-        self._pages.addWidget(self._build_settings_tab())   # 3
-        self._pages.addWidget(self._build_logs_tab())       # 4
+        self._pages.addWidget(self._sites_tab)              # 1
+        self._pages.addWidget(self._build_settings_tab())   # 2
+        self._pages.addWidget(self._build_logs_tab())       # 3
 
     def _rebuild_tabs(self) -> None:
         """Recreate every page so freshly translated labels take effect."""
@@ -1226,7 +1222,6 @@ class MainWindow(QWidget):
 
         # Tray icons and the latency label paint from palette constants directly.
         self._apply_state(self._controller.state)
-        self._split_tab.restyle()
         self._sites_tab.restyle()
         self._power.restyle()
         self._game_glyph.update()

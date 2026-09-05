@@ -39,9 +39,15 @@ class BenchmarkDialog(QDialog):
         self.report: BenchmarkReport | None = None
 
         self.setWindowTitle(tr("Finding the best configuration"))
-        self.setObjectName("root")
-        self.setModal(False)  # "Hide" leaves the main window usable while testing runs
+        self.setObjectName("benchmarkDialog")
+        self.setModal(False)
         self.setFixedSize(520, 380)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Window
+            | Qt.WindowType.WindowMinimizeButtonHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(theme.STYLESHEET)
         self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
 
@@ -49,17 +55,17 @@ class BenchmarkDialog(QDialog):
         self._start()
 
     def paintEvent(self, event) -> None:
-        # The same sea the pages lie on, frozen: the dialog is a transient
-        # piece of chrome and a live wave behind a progress log is a gimmick.
-        # Dialogs are opaque windows, so the CSS gradient cannot be used; this
-        # has to be paint.
-        paint_seascape(self, phase=0.0)
         super().paintEvent(event)
 
     # ------------------------------------------------------------- layout
 
     def _build(self, first_run: bool) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        shell = QWidget()
+        shell.setObjectName("dialogShell")
+        outer.addWidget(shell)
+        root = QVBoxLayout(shell)
         root.setContentsMargins(24, 22, 24, 20)
         root.setSpacing(14)
 

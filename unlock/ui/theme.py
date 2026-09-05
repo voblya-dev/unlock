@@ -217,6 +217,7 @@ QProgressBar {{ background: {g['TRACK']}; border: none; border-radius: 2px; heig
 QPlainTextEdit {{ background: {g['CONSOLE_BG']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 10px; padding: 10px; font-family: \"Cascadia Mono\", \"Consolas\"; font-size: 11px; color: {g['TEXT_MUTED']}; selection-background-color: {g['TEXT']}; selection-color: {g['BG']}; }}
 QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }} QScrollBar:vertical {{ background: transparent; width: 7px; margin: 2px; }} QScrollBar::handle:vertical {{ background: {g['SCROLL']}; border-radius: 0; min-height: 30px; }} QScrollBar::handle:vertical:hover {{ background: {g['SCROLL_HOVER']}; }} QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical, QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ height: 0; background: transparent; }}
 QMenu {{ background: {g['BG_ELEVATED']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 10px; padding: 5px; }} QMenu::item {{ padding: 7px 22px 7px 14px; border: 1px solid transparent; border-radius: 6px; }} QMenu::item:selected {{ background: {g['HOVER']}; border-color: {g['CARD_BORDER']}; }} QMenu::separator {{ height: 1px; background: {g['CARD_BORDER']}; margin: 5px 8px; }}
+#dialogShell {{ background: {g['BG']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 16px; }}
 """
 
 

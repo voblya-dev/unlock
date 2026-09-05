@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
+    QWidget,
 )
 
 from .. import vpn_import
@@ -145,24 +146,29 @@ class AddServersDialog(QDialog):
         self.setWindowTitle(tr("Add servers"))
         self.setModal(True)
         self.setMinimumSize(520, 520)
-        # The palette only paints #root; without the name the dialog falls back
-        # to the platform's white window background.
-        self.setObjectName("root")
+        self.setObjectName("addServersDialog")
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Window
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(theme.STYLESHEET)
         self.setAcceptDrops(True)
 
         self._build()
 
     def paintEvent(self, event) -> None:
-        # Same sea paint as the pages; fixed phase, no per-frame drift for a
-        # dialog that lives for seconds.
-        paint_seascape(self, phase=0.0)
         super().paintEvent(event)
 
     # ------------------------------------------------------------- layout
 
     def _build(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        shell = QWidget()
+        shell.setObjectName("dialogShell")
+        outer.addWidget(shell)
+        root = QVBoxLayout(shell)
         root.setContentsMargins(22, 20, 22, 18)
         root.setSpacing(12)
 
