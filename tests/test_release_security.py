@@ -29,13 +29,16 @@ class ReleaseSecurityTests(unittest.TestCase):
         spec = (ROOT / "unlock.spec").read_text(encoding="utf-8")
         self.assertIn('is_relative_to(bin_dir / "zapret")', spec)
 
-    def test_msi_has_no_custom_action_or_bootstrap_downloader(self) -> None:
-        msi = (ROOT / "installer" / "Unlock.wxs").read_text(encoding="utf-8")
+    def test_installer_is_standard_without_script_code(self) -> None:
+        script = (ROOT / "installer" / "Unlock.iss").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertNotIn("CustomAction", msi)
-        self.assertIn('Scope="perUser"', msi)
-        self.assertIn("UnlockInstaller.msi", workflow)
-        self.assertNotIn("UnlockSetup.exe", workflow)
+        self.assertNotIn("\n[Code]", script)
+        self.assertIn("AppId=", script)
+        self.assertIn("PrivilegesRequired=", script)
+        self.assertIn("build_inno.py", workflow)
+        self.assertIn("Unlock-*-Setup.exe", workflow)
+        self.assertNotIn("UnlockInstaller.msi", workflow)
+        self.assertNotIn("build_msi.py", workflow)
 
     def test_application_starts_services_automatically(self) -> None:
         main = (ROOT / "main.py").read_text(encoding="utf-8")

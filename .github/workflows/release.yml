@@ -61,13 +61,20 @@ jobs:
           py -m pip install --upgrade pip
           py -m pip install -r requirements.txt pyinstaller
 
-      - name: Install WiX toolset
+      - name: Locate Inno Setup compiler
         shell: pwsh
         run: |
-          # The installer source uses the stable WiX v4 schema. Pin the tool;
-          # an unpinned major upgrade can reject a valid release package.
-          dotnet tool install --tool-path .wix wix --version 4.0.5
-          "${{ github.workspace }}\.wix" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          # windows-latest images ship Inno Setup 6; fail early with a clear
+          # message instead of halfway through the installer build.
+          $iscc = (Get-Command ISCC -ErrorAction SilentlyContinue)?.Source
+          if (-not $iscc) {
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $iscc)) {
+            throw "Inno Setup 6+ (ISCC.exe) not found. Install it via `choco install innosetup`."
+          }
+          Write-Host "ISCC: $iscc"
+          & $iscc /? | Select-Object -First 3
 
       - name: Validate version against tag
         shell: pwsh
@@ -138,13 +145,13 @@ jobs:
         shell: pwsh
         run: py -B tools/build_release_bundle.py --input dist/Unlock --output dist/Unlock.zip
 
-      - name: Build standard MSI installer
+      - name: Build standard Setup installer
         shell: pwsh
         run: |
           $version = $env:RELEASE_TAG.Substring(1)
-          py -B tools/build_msi.py --input dist/Unlock --version $version --output dist/UnlockInstaller.msi
+          py -B tools/build_inno.py --input dist/Unlock --version $version
 
-      - name: Sign MSI installer
+      - name: Sign Setup installer
         if: ${{ env.SIGNING_ENABLED == 'true' }}
         uses: Azure/artifact-signing-action@v2
         with:
@@ -152,7 +159,7 @@ jobs:
           signing-account-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
           files-folder: ${{ github.workspace }}\dist
-          files-folder-filter: UnlockInstaller.msi
+          files-folder-filter: Unlock-*-Setup.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -162,18 +169,16 @@ jobs:
         shell: pwsh
         run: |
           py -B tools/verify_authenticode.py dist\Unlock --publisher "$env:RELEASE_PUBLISHER"
-          $signature = Get-AuthenticodeSignature -LiteralPath dist\UnlockInstaller.msi
+          $setup = Get-ChildItem dist\Unlock-*-Setup.exe | Select-Object -First 1
+          $signature = Get-AuthenticodeSignature -LiteralPath $setup.FullName
           if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate.Subject.Contains($env:RELEASE_PUBLISHER)) {
-            throw "MSI signature verification failed: $($signature.Status) $($signature.SignerCertificate.Subject)"
+            throw "Setup signature verification failed: $($signature.Status) $($signature.SignerCertificate.Subject)"
           }
 
       - name: Write checksums
         shell: pwsh
         run: |
-          $assets = @(
-            "dist\Unlock.zip",
-            "dist\UnlockInstaller.msi"
-          )
+          $assets = @( "dist\Unlock.zip" ) + @( Get-ChildItem dist\Unlock-*-Setup.exe | ForEach-Object { $_.FullName } )
           $lines = foreach ($path in $assets) {
             $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
             $name = [IO.Path]::GetFileName($path)
@@ -189,16 +194,17 @@ jobs:
       - name: Attest installer provenance
         uses: actions/attest@v4
         with:
-          subject-path: dist/UnlockInstaller.msi
+          subject-path: dist/Unlock-*-Setup.exe
 
       - name: Publish GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $setup = Get-ChildItem dist\Unlock-*-Setup.exe | Select-Object -First 1 -ExpandProperty FullName
           $assets = @(
             "dist\Unlock.zip",
-            "dist\UnlockInstaller.msi",
+            $setup,
             "dist\SHA256SUMS.txt"
           )
           gh release view "$env:RELEASE_TAG" *> $null
