@@ -59,7 +59,7 @@ jobs:
         shell: pwsh
         run: |
           py -m pip install --upgrade pip
-          py -m pip install -r requirements.txt pyinstaller
+          py -m pip install -r requirements.txt
 
       - name: Locate Inno Setup compiler
         shell: pwsh
