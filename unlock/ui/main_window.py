@@ -45,7 +45,7 @@ log = logger.get_logger("ui")
 # The opening size and the minimum are the same: a smaller window is not
 # offered, because every page is laid out for this frame and squeezing it
 # clipped the telemetry cards. Resizing larger stays allowed.
-_WINDOW_SIZE = (960, 620)
+_WINDOW_SIZE = (960, 590)
 _MIN_SIZE = _WINDOW_SIZE
 _HEADER_H = 46
 _SIDEBAR_W = 160
