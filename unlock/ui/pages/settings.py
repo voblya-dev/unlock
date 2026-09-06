@@ -31,11 +31,14 @@ from PyQt6.QtWidgets import (
 from ... import autostart, sounds
 from ...constants import APP_VERSION, CONFIG_PATH, LOG_PATH
 from ...controllers import Controller
+from ...logger import get_logger
 from ...strategies import load_strategies
 from .. import anim, i18n, theme
 from ..canvas import TerminalPage
 from ..i18n import tr
 from ..widgets import GamepadGlyph, NoScrollComboBox, Switch
+
+log = get_logger("ui.settings")
 
 # Config key → label, for the three grayscale tonalities in theme.ACCENTS. The
 # keys stay as they are so an existing configuration keeps its choice.
@@ -420,7 +423,10 @@ class SettingsPage(QScrollArea):
             self._cb_launch_at_sign_in.blockSignals(True)
             self._cb_launch_at_sign_in.setChecked(not enabled)
             self._cb_launch_at_sign_in.blockSignals(False)
-            self._controller.error.emit(str(exc))
+            # A translated sentence first: a bare WinError string tells the user
+            # nothing about which setting failed to stick.
+            log.warning("Autostart entry could not be written: %s", exc)
+            self._controller.error.emit(tr("Could not update the Windows startup entry."))
             return
         self._config.set("launch_at_sign_in", enabled)
 

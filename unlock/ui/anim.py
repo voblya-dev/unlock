@@ -1,12 +1,22 @@
 """Animation helpers shared by the widgets.
 
-Two rules run through this module:
+Three rules run through this module:
 
 * Readings are never animated. A tweened number lags the engine it reports on,
   so :class:`ValueTween` writes straight through — the panel is a live meter,
   not a countdown.
 * Everything structural is. Panels grow and collapse, cards fade in, labels
   cross-fade, so a change of state reads as motion rather than a redraw.
+* Motion is unhurried and eases out for a long time. The earlier timings were
+  quick enough that a transition read as a jump with a smear on it; the quintic
+  tails below spend most of their duration decelerating, which is what makes a
+  slower animation read as calm rather than as lag.
+
+Durations are named for intent, not length, so retuning the feel is one edit
+here rather than a sweep through the widgets. ``PAGE`` and ``TEXT`` exist
+because the tab transition and the status line are the two motions with their
+own constraints: the first is the largest thing that moves, the second has to
+keep up with an engine that can change state twice in a second.
 
 Every animation is parented to the widget it drives, so it dies with it and a
 rebuilt tab cannot leave a timer running against a deleted C++ object.
@@ -23,14 +33,22 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QGraphicsOpacityEffect, QLabel, QWidget
 
-FAST = 220
-NORMAL = 360
-SLOW = 520
-EXPAND = 780
+FAST = 300        # small acknowledgements: a button dip, a window fade
+CONTROL = 380     # a control under the cursor, where a long tail reads as lag
+NORMAL = 520      # a single card or panel arriving
+SLOW = 760        # a column of cards, where the cascade is the point
+EXPAND = 1000     # a panel growing to or from nothing
+PAGE = 680        # the tab transition: the largest thing on screen that moves
+TEXT = 260        # one half of a text crossfade, so a swap lands in ~520 ms
 
-EASE = QEasingCurve.Type.OutCubic
-EASE_SOFT = QEasingCurve.Type.InOutCubic
-EASE_EXIT = QEasingCurve.Type.InOutCubic
+# OutQuint over OutCubic: at these durations a cubic tail still arrives with a
+# visible stop, where a quintic spends its last third almost still.
+EASE = QEasingCurve.Type.OutQuint
+EASE_SOFT = QEasingCurve.Type.InOutQuint
+# Sine, not cubic, for anything leaving: a gentle start means a label that is
+# about to be replaced does not appear to flinch first.
+EASE_EXIT = QEasingCurve.Type.InOutSine
+EASE_PAGE = QEasingCurve.Type.InOutQuint
 
 _RUNNING = "_unlock_anim"
 
@@ -91,7 +109,7 @@ def slide_in(widget: QWidget, *, duration: int = SLOW, delay: int = 0,
     fade_in(widget, duration=duration, delay=delay)
 
 
-def stagger_in(widgets, *, step: int = 55, duration: int = SLOW) -> None:
+def stagger_in(widgets, *, step: int = 80, duration: int = SLOW) -> None:
     """Fade a column of cards in one after another."""
     for index, widget in enumerate(widgets):
         slide_in(widget, duration=duration, delay=index * step)
@@ -162,7 +180,7 @@ def pulse(widget: QWidget, *, duration: int = NORMAL, amount: float = 0.55) -> N
     down.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
-def crossfade_text(label: QLabel, text: str, *, duration: int = FAST) -> None:
+def crossfade_text(label: QLabel, text: str, *, duration: int = TEXT) -> None:
     """Swap a label's text through a dip in opacity instead of a hard cut."""
     if label.text() == text:
         return

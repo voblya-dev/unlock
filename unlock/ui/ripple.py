@@ -21,7 +21,6 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtCore import (
-    QEasingCurve,
     QEvent,
     QObject,
     QPointF,
@@ -33,9 +32,12 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QPainter, QPainterPath
 from PyQt6.QtWidgets import QAbstractButton, QCheckBox, QWidget
 
-from . import theme
+from . import anim, theme
 
-_DURATION = 420
+# The wave outlives the click that starts it by design, so this is longer than
+# any other control timing: the circle is still spreading when the mouse comes
+# back up, which is what makes the button feel like it absorbed the press.
+_DURATION = 560
 _PEAK_ALPHA = 0.22
 _FLAG = "unlock_ripple"
 
@@ -70,7 +72,7 @@ class _Overlay(QWidget):
 
         self._grow = QPropertyAnimation(self, b"progress", self)
         self._grow.setDuration(_DURATION)
-        self._grow.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._grow.setEasingCurve(anim.EASE)
         # Hidden again at the end so a stack of dead overlays cannot cost a
         # repaint on every parent update.
         self._grow.finished.connect(self.hide)

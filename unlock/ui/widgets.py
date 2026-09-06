@@ -291,8 +291,12 @@ class ClippedStackedWidget(QStackedWidget):
             (incoming, QPoint(offset, 0), QPoint(0, 0)),
         ):
             move = QPropertyAnimation(page, b"pos", group)
-            move.setDuration(anim.NORMAL)
-            move.setEasingCurve(anim.EASE)
+            move.setDuration(anim.PAGE)
+            # Eased at both ends, unlike the rest of the UI: a page entering from
+            # off screen with no acceleration looks like it was already moving
+            # before the click, and the whole viewport is wide enough for that to
+            # be obvious.
+            move.setEasingCurve(anim.EASE_PAGE)
             move.setStartValue(start)
             move.setEndValue(end)
             group.addAnimation(move)
@@ -343,7 +347,10 @@ class Switch(QCheckBox):
 
         self._pos = 1.0 if self.isChecked() else 0.0
         self._slide = QPropertyAnimation(self, b"knob", self)
-        self._slide.setDuration(anim.NORMAL)
+        # CONTROL rather than NORMAL: the knob is directly under the cursor when
+        # it moves, and a half-second travel there reads as the click not having
+        # registered rather than as a smooth animation.
+        self._slide.setDuration(anim.CONTROL)
         self._slide.setEasingCurve(QEasingCurve.Type.OutBack)
 
         self.toggled.connect(self._animate)

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Unlock"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 
 # ---------------------------------------------------------------- paths
 
@@ -131,6 +131,9 @@ VPN_TUN_CONFIG_PATH = DATA_DIR / "vpn-tun.json"
 
 # Endpoints used by the benchmark to score a strategy. Mirrors the target set
 # from the zapret pack's own "test zapret.ps1" / utils/targets.txt.
+#
+# Each list leads with the host the user would actually open, because that is the
+# one triage probes and the one a service is judged on first.
 PROBE_TARGETS = {
     "discord": [
         "https://discord.com",
@@ -140,8 +143,8 @@ PROBE_TARGETS = {
     ],
     "youtube": [
         "https://www.youtube.com",
-        "https://youtu.be",
         "https://i.ytimg.com",
+        "https://youtu.be",
         "https://redirector.googlevideo.com",
     ],
     "google": [
@@ -158,24 +161,33 @@ PROBE_TARGETS = {
 # a tie-break for "does this strategy slow the whole link down".
 PING_TARGETS = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
 
-# Each URL is probed once per protocol; a strategy must pass all of them.
+# ClientHello shapes each endpoint is tried with: a DPI box often lets one
+# through while cutting another. See unlock.netprobe.SHAPES.
 PROBE_PROTOCOLS = ("http1.1", "tls1.2", "tls1.3")
 
 # How many probes run at once. The pack's script uses 8.
 PROBE_PARALLEL = 8
 
-PROBE_TIMEOUT = 3.0          # seconds per probe; blocked requests never return
+PROBE_TIMEOUT = 4.0          # seconds per attempt; blocked handshakes never return
+# Attempts per endpoint before calling it blocked. A desync strategy frequently
+# lands on the retransmit rather than the first packet, so a single refusal used
+# to reject strategies that work perfectly well in a browser.
+PROBE_ATTEMPTS = 2
+# Triage is the pass that rejects most strategies, so it gets a tighter deadline:
+# with two attempts the full timeout would double the length of a benchmark.
+PROBE_TRIAGE_TIMEOUT = 2.5
 
 # --- post-connect self-test
-# One representative endpoint per service the user actually cares about. Kept
-# short on purpose: this runs on every connect, so it must not feel like the
-# benchmark. Discord and YouTube come from PROBE_TARGETS; Telegram is checked
-# through the local bridge instead of over the network.
+# The services the user actually cares about, each with the endpoints that count
+# as it being up — the first one that answers settles it, so they lead with the
+# host the user would open. Kept short on purpose: this runs on every connect, so
+# it must not feel like the benchmark. Telegram is checked through the local
+# bridge instead of over the network.
 SELFTEST_SERVICES = {
-    "Discord": "https://discord.com",
-    "YouTube": "https://www.youtube.com",
+    "Discord": ("https://discord.com", "https://gateway.discord.gg"),
+    "YouTube": ("https://www.youtube.com", "https://i.ytimg.com", "https://youtu.be"),
 }
-SELFTEST_TIMEOUT = 4.0
+SELFTEST_TIMEOUT = 6.0
 # Give winws a moment to bind the filter before judging whether a site loads.
 SELFTEST_DELAY = 1.5
 

@@ -14,7 +14,7 @@ looking at would be the only place it was ever mentioned.
 from __future__ import annotations
 
 from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSlot
-from PyQt6.QtGui import QAction, QCloseEvent, QMouseEvent
+from PyQt6.QtGui import QAction, QCloseEvent, QGuiApplication, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -42,8 +42,18 @@ from .widgets import ClippedPanel, ClippedStackedWidget, NavButton
 
 log = logger.get_logger("ui")
 
-_WINDOW_SIZE = (960, 540)
-_MIN_SIZE = (700, 400)
+# One and a half times the size this shipped at (960×540 / 700×400). The layout
+# is a 24 px grid with a fixed rail and a stretchy content area, so it gains room
+# rather than gaps — and the telemetry cards, the orb and the log view are all
+# things there was never enough of.
+_WINDOW_SIZE = (1440, 810)
+_MIN_SIZE = (1050, 600)
+# Below this the minimum would fight the screen instead of the layout, so a small
+# display falls back to the proportions the window shipped with.
+_FLOOR_SIZE = (700, 400)
+# How much of the work area the opening size may take before it is scaled down.
+# Not 1.0: a window that exactly fills the work area reads as a botched maximise.
+_SCREEN_FRACTION = 0.92
 _HEADER_H = 46
 _SIDEBAR_W = 160
 _RESIZE_MARGIN = 10
@@ -115,7 +125,7 @@ class _ContentPanel(QWidget):
         self.update()
 
 
-def _open_softly(dialog, *, duration: int = 300) -> None:
+def _open_softly(dialog, *, duration: int = anim.NORMAL) -> None:
     """Show a dialog with a short fade instead of a hard pop."""
     dialog.setWindowOpacity(0.0)
     dialog.show()
@@ -123,7 +133,7 @@ def _open_softly(dialog, *, duration: int = 300) -> None:
     fade.setDuration(duration)
     fade.setStartValue(0.0)
     fade.setEndValue(1.0)
-    fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+    fade.setEasingCurve(anim.EASE)
     fade.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
@@ -133,6 +143,7 @@ class MainWindow(QWidget):
         self._controller = controller
         self._quitting = False
         self._shown_once = False
+        self._tray_hint_shown = False
         self._benchmark_dialog: BenchmarkDialog | None = None
 
         self.setWindowTitle(APP_NAME)
@@ -151,8 +162,9 @@ class MainWindow(QWidget):
         # widget is the thing being made see-through.
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
-        self.setMinimumSize(*_MIN_SIZE)
-        self.resize(*_WINDOW_SIZE)
+        opening, minimum = self._sizes_for_screen()
+        self.setMinimumSize(*minimum)
+        self.resize(*opening)
         self.setStyleSheet(theme.STYLESHEET)
 
         self._build_ui()
@@ -169,6 +181,29 @@ class MainWindow(QWidget):
         self._apply_state(controller.state)
 
     # ------------------------------------------------------------------ UI
+
+    def _sizes_for_screen(self) -> tuple[tuple[int, int], tuple[int, int]]:
+        """Opening and minimum size, scaled down if the display is small.
+
+        The preferred size is deliberately generous, which on a 1366×768 laptop
+        would put a 1440-wide frame partly off-screen and — worse — set a minimum
+        the user could not resize below. So both are fitted to the available work
+        area, keeping the aspect ratio, and the minimum never grows past what the
+        window shipped with.
+        """
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:                              # headless; nothing to fit
+            return _WINDOW_SIZE, _MIN_SIZE
+        area = screen.availableGeometry()
+        room_w = int(area.width() * _SCREEN_FRACTION)
+        room_h = int(area.height() * _SCREEN_FRACTION)
+        scale = min(1.0, room_w / _WINDOW_SIZE[0], room_h / _WINDOW_SIZE[1])
+        opening = (int(_WINDOW_SIZE[0] * scale), int(_WINDOW_SIZE[1] * scale))
+        minimum = (
+            max(_FLOOR_SIZE[0], min(_MIN_SIZE[0], opening[0])),
+            max(_FLOOR_SIZE[1], min(_MIN_SIZE[1], opening[1])),
+        )
+        return opening, minimum
 
     def _build_ui(self) -> None:
         self._outer = QVBoxLayout(self)
@@ -308,8 +343,11 @@ class MainWindow(QWidget):
         row.setContentsMargins(28, 0, 18, 0)
         row.setSpacing(18)
 
-        mark = QLabel("UNLOCK / УПРАВЛЕНИЕ СЕТЬЮ")
+        # Translated like every other visible string: this was hard-coded Russian,
+        # so an English install had one Cyrillic line across the top of the window.
+        mark = QLabel(f"UNLOCK / {tr('NETWORK CONTROL')}")
         mark.setObjectName("terminalTitle")
+        self._terminal_title = mark
         row.addWidget(mark)
         for _ in range(4):
             dot = QLabel("●")
@@ -317,12 +355,21 @@ class MainWindow(QWidget):
             row.addWidget(dot)
         row.addStretch(1)
 
-        for text, callback in (("−", self._minimise), ("×", self.close)):
+        # The glyphs are unlabelled by design, so the tooltip is the only place
+        # the two buttons say which is which. Kept in a list because a language
+        # change re-translates them in place.
+        self._window_buttons: list[tuple[QPushButton, str]] = []
+        for text, tip, callback in (
+            ("−", "Minimise", self._minimise),
+            ("×", "Close", self.close),
+        ):
             button = QPushButton(text)
             button.setObjectName("terminalWindowButton")
             button.setFixedSize(28, 28)
+            button.setToolTip(tr(tip))
             button.clicked.connect(callback)
             row.addWidget(button)
+            self._window_buttons.append((button, tip))
         return bar
 
     def _populate_pages(self) -> None:
@@ -362,6 +409,9 @@ class MainWindow(QWidget):
         self._pages.setCurrentIndex(current)
         for button, label in zip(self._nav_buttons, self._nav_labels()):
             button.setText(label)
+        self._terminal_title.setText(f"UNLOCK / {tr('NETWORK CONTROL')}")
+        for button, tip in self._window_buttons:
+            button.setToolTip(tr(tip))
         self._settings.load_from_config()
         self._apply_state(self._controller.state)
 
@@ -676,7 +726,7 @@ class MainWindow(QWidget):
         fade.setDuration(duration)
         fade.setStartValue(0.0)
         fade.setEndValue(1.0)
-        fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        fade.setEasingCurve(anim.EASE)
         fade.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _layout_grips(self) -> None:
@@ -724,3 +774,11 @@ class MainWindow(QWidget):
         # Closing hides to tray; Quit in the tray menu is the real exit.
         event.ignore()
         self.hide()
+        # Once per run, and only the first time: closing a window and having it
+        # not close is the one surprise here, and a balloon on every close would
+        # be the kind of notification people learn to dismiss unread.
+        if not self._tray_hint_shown:
+            self._tray_hint_shown = True
+            self._notify(
+                APP_NAME, tr("Still running in the tray. Use Quit to exit completely.")
+            )

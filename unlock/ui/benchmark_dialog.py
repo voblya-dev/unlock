@@ -20,13 +20,16 @@ from . import anim, theme
 from .i18n import tr
 
 
-def _fmt_ping(ms: float, lo: int = 110, hi: int = 150) -> str:
-    """Map any real latency into a display range [lo, hi] with natural spread."""
+def _fmt_ping(ms: float) -> str:
+    """The measured latency, or a dash when there was nothing to measure.
+
+    It used to seed a random number generator with the measurement and print a
+    value from a flattering 110-150 range instead, which made every strategy look
+    equally good and made the column unusable for the one thing it is for.
+    """
     if ms == float("inf") or ms <= 0:
         return "—"
-    import random
-    rng = random.Random(int(ms * 1000))
-    return str(rng.randint(lo, hi))
+    return f"{ms:.0f}"
 
 
 class BenchmarkDialog(QDialog):
@@ -152,7 +155,9 @@ class BenchmarkDialog(QDialog):
                 detail = result.error
             else:
                 ms = result.link_ms if result.link_ms != float("inf") else result.latency_ms
-                detail = f"{result.passed}/{result.total} probes, пинг {_fmt_ping(ms)} мс"
+                detail = tr("%d/%d endpoints, %s ms") % (
+                    result.passed, result.total, _fmt_ping(ms)
+                )
             self._log.appendPlainText(f"  {mark}  {result.name:<28} {detail}")
         if report.telegram is not None:
             tg = report.telegram
@@ -163,11 +168,11 @@ class BenchmarkDialog(QDialog):
         best = report.best_strategy
         if best and best.ok:
             ms = best.link_ms if best.link_ms != float("inf") else best.latency_ms
-            self._step.setText(f"Selected {best.name} — пинг {_fmt_ping(ms)} мс")
+            self._step.setText(tr("Selected %s — %s ms") % (best.name, _fmt_ping(ms)))
         elif best:
             self._step.setText(
-                f"No config passed everything. Best partial: {best.name} "
-                f"({best.passed}/{best.total} probes)"
+                tr("No config passed everything. Best partial: %s (%d/%d endpoints)")
+                % (best.name, best.passed, best.total)
             )
         else:
             self._step.setText(tr(
@@ -176,7 +181,7 @@ class BenchmarkDialog(QDialog):
             ))
 
     def _on_failed(self, message: str) -> None:
-        self._step.setText(f"Benchmark failed: {message}")
+        self._step.setText(tr("Testing failed: %s") % message)
         self._abort.setEnabled(False)
         self._hide.setEnabled(False)
         self._close.setEnabled(True)

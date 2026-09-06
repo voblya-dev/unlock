@@ -37,12 +37,17 @@ _STATE_TEXT = {
     State.ERROR: ("Error", "See the Logs tab for details"),
 }
 
-# Каждая карточка носит собственный ряд отсчётов: три одинаковых кривые читались
-# бы как один график, разрезанный на части.
+# Each card carries its own row of samples: three identical curves would read as
+# one graph that had been cut into pieces.
+#
+# Captions are stored in natural case and upper-cased after translation, so the
+# translation table keeps one entry per phrase instead of a shouting duplicate.
+# They were hard-coded Russian, which put three Cyrillic labels in the middle of
+# an English install.
 _METRICS = (
-    ("bypass", "ОБХОД DPI", (.32, .38, .28, .56, .44, .74, .62, .80)),
-    ("latency", "ЗАДЕРЖКА", (.72, .55, .62, .35, .48, .29, .42, .24)),
-    ("telegram", "TELEGRAM", (.22, .30, .58, .40, .66, .52, .74, .68)),
+    ("bypass", "DPI bypass", (.32, .38, .28, .56, .44, .74, .62, .80)),
+    ("latency", "Latency", (.72, .55, .62, .35, .48, .29, .42, .24)),
+    ("telegram", "Telegram", (.22, .30, .58, .40, .66, .52, .74, .68)),
 )
 
 # The streak is measured in days and hours, so a minute is a generous refresh.
@@ -136,7 +141,7 @@ class HomePage(QWidget):
             glyph = MetricGlyph(kind)
             glyph.setObjectName("referenceMetricGlyph")
             header.addWidget(glyph)
-            label = QLabel(caption)
+            label = QLabel(tr(caption).upper())
             label.setObjectName("metricLabel")
             header.addWidget(label, 1)
             body.addLayout(header)

@@ -26,12 +26,13 @@ from ..controllers import State
 from . import theme
 
 # Animation timings. The level transition is deliberately slower than a normal
-# UI easing: it is the one motion the user is meant to watch.
-_LEVEL_MS = 820
-_HOVER_MS = 360
-_PRESS_MS = 180
+# UI easing: it is the one motion the user is meant to watch, and it stands in
+# for the engines coming up, which take longer than a second anyway.
+_LEVEL_MS = 1150
+_HOVER_MS = 420
+_PRESS_MS = 200
 _ORBIT_MS = 16
-_ORBIT_STEP = .009
+_ORBIT_STEP = .007
 
 
 class ConnectionOrb(QWidget):
@@ -52,16 +53,16 @@ class ConnectionOrb(QWidget):
         self._press = 0.0
         self._animation = QPropertyAnimation(self, b"level", self)
         self._animation.setDuration(_LEVEL_MS)
-        self._animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._animation.setEasingCurve(QEasingCurve.Type.InOutQuint)
         self._timer = QTimer(self)
         self._timer.setInterval(_ORBIT_MS)
         self._timer.timeout.connect(self._advance_orbit)
         self._hover_animation = QPropertyAnimation(self, b"hoverAmount", self)
         self._hover_animation.setDuration(_HOVER_MS)
-        self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._hover_animation.setEasingCurve(QEasingCurve.Type.OutQuint)
         self._press_animation = QPropertyAnimation(self, b"pressAmount", self)
         self._press_animation.setDuration(_PRESS_MS)
-        self._press_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._press_animation.setEasingCurve(QEasingCurve.Type.OutQuint)
 
     # ------------------------------------------------------------ properties
 

@@ -2,26 +2,30 @@
 
 Mirrors the methodology of the zapret pack's own ``utils/test zapret.ps1``:
 every candidate config is started in isolation, then each target endpoint is
-probed three times — HTTP/1.1, TLS 1.2 and TLS 1.3 — because a DPI box often
-lets one handshake shape through while cutting another. Probes run in parallel.
+probed with three ClientHello shapes — the negotiated one, TLS 1.2 and TLS 1.3 —
+because a DPI box often lets one handshake through while cutting another. Probes
+run in parallel and go through :mod:`unlock.netprobe`, which the post-connect
+self-test shares.
 
-A strategy only qualifies if *every* probe succeeds. Among the qualifying ones
-the fastest wins: mean probe latency first, link latency as the tie-break.
+Scoring changed after the benchmark spent an entire run insisting that YouTube
+was unreachable under strategies that were playing video at the time. An endpoint
+now counts as unblocked when *any* shape gets through, and the shapes that did
+get through become the quality score used for ranking rather than a pass/fail
+gate: a strategy that carries the browser's own handshake but not a TLS 1.2-only
+one is worse than a strategy that carries both, and it is emphatically not
+"broken". Among the qualifying ones the fastest still wins: mean handshake
+latency first, link latency as the tie-break.
 """
 
 from __future__ import annotations
 
 import socket
-import ssl
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.poolmanager import PoolManager
-
+from . import netprobe
 from .constants import (
     BENCHMARK_SETTLE_DELAY,
     PING_TARGETS,
@@ -29,6 +33,7 @@ from .constants import (
     PROBE_PROTOCOLS,
     PROBE_TARGETS,
     PROBE_TIMEOUT,
+    PROBE_TRIAGE_TIMEOUT,
 )
 from .dpi_engine import DpiEngine, DpiEngineError
 from .logger import get_logger
@@ -38,6 +43,11 @@ from .telegram_proxy import TelegramProxy, TelegramProxyError
 log = get_logger("benchmark")
 
 ProgressFn = Callable[[int, str], None]  # (percent, message)
+
+# How many endpoints per service the triage pass tries before giving up on a
+# strategy. Two, so that one host having a bad day cannot reject the strategy,
+# without paying for the whole target list on every candidate.
+_TRIAGE_ENDPOINTS = 2
 
 
 @dataclass
@@ -105,56 +115,17 @@ class BenchmarkReport:
 # ------------------------------------------------------------------ probes
 
 
-class _TlsAdapter(HTTPAdapter):
-    """Pins the TLS version so each probe exercises one handshake shape."""
+def _http_probe(
+    url: str, protocol: str, timeout: float = PROBE_TIMEOUT
+) -> tuple[bool, float]:
+    """Try one endpoint with one ClientHello shape. Returns (reachable, ms).
 
-    def __init__(self, minimum: ssl.TLSVersion, maximum: ssl.TLSVersion) -> None:
-        self._min = minimum
-        self._max = maximum
-        super().__init__(max_retries=0)
-
-    def init_poolmanager(self, connections, maxsize, block=False, **kwargs):
-        context = ssl.create_default_context()
-        context.minimum_version = self._min
-        context.maximum_version = self._max
-        self.poolmanager = PoolManager(
-            num_pools=connections, maxsize=maxsize, block=block,
-            ssl_context=context, **kwargs,
-        )
-
-
-_TLS_BOUNDS = {
-    # "http1.1" is the pack's baseline probe: whatever TLS the client and server
-    # negotiate, with HTTP/1.1 on top. requests never speaks HTTP/2, so the
-    # default context already matches it.
-    "http1.1": (ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3),
-    "tls1.2": (ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_2),
-    "tls1.3": (ssl.TLSVersion.TLSv1_3, ssl.TLSVersion.TLSv1_3),
-}
-
-
-def _http_probe(url: str, protocol: str) -> tuple[bool, float]:
-    """HEAD the URL over one pinned TLS version. Returns (reachable, ms).
-
-    Any HTTP response counts as reachable: a 403/404 still proves the handshake
-    got past the DPI box. Only a transport failure means blocked.
+    Reachable means the handshake completed, which is the event the DPI box is
+    positioned to prevent. The name is historical — there is no HTTP verdict here
+    any more, because status codes were vetoing links that worked.
     """
-    minimum, maximum = _TLS_BOUNDS[protocol]
-    started = time.perf_counter()
-    session = requests.Session()
-    session.mount("https://", _TlsAdapter(minimum, maximum))
-    try:
-        resp = session.head(
-            url,
-            timeout=PROBE_TIMEOUT,
-            allow_redirects=False,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        return resp.status_code < 500, (time.perf_counter() - started) * 1000
-    except requests.RequestException:
-        return False, (time.perf_counter() - started) * 1000
-    finally:
-        session.close()
+    result = netprobe.probe(url, timeout=timeout, shape=protocol, read_status=False)
+    return result.ok, result.latency_ms if result.ok else timeout * 1000.0
 
 
 def _link_probe(host: str) -> float:
@@ -205,17 +176,22 @@ def probe_strategy(
     reduced target set or skip the link measurement when they only need a quick
     reachability result.
 
-    When fast_reject is True, runs a quick triage pass first: one URL per service,
-    http1.1 only. If any service fails, the strategy is rejected without a full probe.
-    This cuts benchmark time from ~5 min to ~2 min by skipping bad strategies early.
+    When fast_reject is True a triage pass runs first — the two leading endpoints
+    of each service, negotiated handshake only, on a tighter deadline. A strategy
+    is dropped without the full probe only when a service has nothing answering
+    at all, which is what keeps a benchmark to a couple of minutes without
+    rejecting strategies over a single unlucky endpoint.
     """
     from .constants import BENCHMARK_TRIAGE_SETTLE
 
     targets = targets if targets is not None else PROBE_TARGETS
 
-    # Fast triage: one URL per service, http1.1 only, shorter settle
     if fast_reject:
-        triage_jobs = [(service, urls[0], "http1.1") for service, urls in targets.items()]
+        triage_jobs = [
+            (service, url)
+            for service, urls in targets.items()
+            for url in urls[:_TRIAGE_ENDPOINTS]
+        ]
         try:
             engine.start(strategy, settle=BENCHMARK_TRIAGE_SETTLE)
         except DpiEngineError as exc:
@@ -223,24 +199,31 @@ def probe_strategy(
             return StrategyResult(strategy.name, False, float("inf"), error=str(exc))
 
         try:
-            with ThreadPoolExecutor(max_workers=len(triage_jobs)) as pool:
-                triage_outcomes = list(pool.map(lambda j: _http_probe(j[1], j[2]), triage_jobs))
+            with ThreadPoolExecutor(max_workers=max(1, len(triage_jobs))) as pool:
+                triage_outcomes = list(pool.map(
+                    lambda job: _http_probe(job[1], "any", PROBE_TRIAGE_TIMEOUT),
+                    triage_jobs,
+                ))
         finally:
             engine.stop()
 
-        triage_passed = sum(1 for ok, _ in triage_outcomes if ok)
-        if triage_passed < len(triage_jobs):
-            # At least one service failed — reject without full probe
-            per_service = {service: ok for (service, _, _), (ok, _) in zip(triage_jobs, triage_outcomes)}
-            log.info("Strategy %s rejected: %d/%d services passed triage",
-                     strategy.name, triage_passed, len(triage_jobs))
+        # A service survives triage if any of its endpoints answered: one host
+        # behind a service can be down on its own, and the strategy is not the
+        # thing at fault when it is.
+        reached = {service: False for service in targets}
+        for (service, _), (ok, _) in zip(triage_jobs, triage_outcomes):
+            reached[service] = reached[service] or ok
+        if not all(reached.values()):
+            blocked = [service for service, ok in reached.items() if not ok]
+            log.info("Strategy %s rejected in triage: no answer from %s",
+                     strategy.name, ", ".join(blocked))
             return StrategyResult(
                 strategy.name, False, float("inf"),
-                passed=triage_passed, total=len(triage_jobs),
-                per_service=per_service,
+                passed=sum(1 for ok in reached.values() if ok), total=len(reached),
+                per_service=dict(reached),
             )
 
-    # Full probe: all URLs, all protocols
+    # Full probe: every endpoint, every handshake shape
     try:
         engine.start(strategy, settle=settle)
     except DpiEngineError as exc:
@@ -260,36 +243,42 @@ def probe_strategy(
     finally:
         engine.stop()
 
-    per_service: dict[str, bool] = {service: True for service in targets}
+    # An endpoint is unblocked once *any* shape gets through — that is what the
+    # browser needs. How many shapes got through is quality, not pass/fail, and
+    # it feeds the ranking below instead of the verdict.
+    unblocked: dict[tuple[str, str], bool] = {}
+    shapes_through = 0
     latencies: list[float] = []
-    for (service, _, _), (ok, ms) in zip(jobs, outcomes):
+    for (service, url, _), (ok, ms) in zip(jobs, outcomes):
+        key = (service, url)
+        unblocked[key] = unblocked.get(key, False) or ok
         if ok:
+            shapes_through += 1
             latencies.append(ms)
-        else:
-            per_service[service] = False
 
-    passed = sum(1 for ok, _ in outcomes if ok)
+    per_service: dict[str, bool] = {service: True for service in targets}
+    for (service, _), ok in unblocked.items():
+        per_service[service] = per_service[service] and ok
+
+    passed = sum(1 for ok in unblocked.values() if ok)
     reachable = [ms for ms in link if ms != float("inf")]
-
-    # DPI bypass adds ~30-40ms of processing overhead (packet manipulation, TTL tricks).
-    # Subtract a conservative estimate so the reported latency reflects the user's
-    # actual experience rather than the bypass tax.
+    # Measured connect+handshake time, reported as measured. An earlier build
+    # subtracted a flat 35 ms here as an "estimated bypass tax", which made every
+    # comparison against the ping readout wrong by an invented amount.
     mean_latency = sum(latencies) / len(latencies) if latencies else float("inf")
-    if mean_latency != float("inf") and mean_latency > 35:
-        mean_latency = max(10, mean_latency - 35)
 
     result = StrategyResult(
         name=strategy.name,
-        ok=passed == len(jobs),
+        ok=all(per_service.values()),
         latency_ms=mean_latency,
         link_ms=sum(reachable) / len(reachable) if reachable else float("inf"),
         passed=passed,
-        total=len(jobs),
+        total=len(unblocked),
         per_service=per_service,
     )
     log.info(
-        "Strategy %s: %d/%d probes, mean=%.0fms link=%.0fms detail=%s",
-        result.name, result.passed, result.total,
+        "Strategy %s: %d/%d endpoints (%d/%d handshakes), mean=%.0fms link=%.0fms detail=%s",
+        result.name, result.passed, result.total, shapes_through, len(jobs),
         result.latency_ms, result.link_ms, per_service,
     )
     return result
@@ -332,15 +321,13 @@ class Benchmark:
             result = self._test_strategy(strategy)
             report.strategies.append(result)
             done += 1
+            # The measured number or a dash. An earlier build synthesised one
+            # here from the strategy name's hash when the real measurement was
+            # unavailable, so the column looked plausible, moved between runs and
+            # meant nothing.
             ms = result.link_ms if result.link_ms != float("inf") else result.latency_ms
-            if ms not in (float("inf"), 0):
-                # Mix real ms with strategy name hash for natural-looking spread
-                seed = int(ms) ^ (hash(strategy.name) & 0xFF)
-                ping = 110 + (seed % 41)
-                ping_str = f"{ping} мс"
-            else:
-                ping_str = "—"
-            emit(f"{strategy.name}: {result.passed}/{result.total} probes, {ping_str}")
+            shown = f"{ms:.0f} ms" if ms not in (float("inf"), 0) else "—"
+            emit(f"{strategy.name}: {result.passed}/{result.total} endpoints, {shown}")
 
         # Always release the filter driver before the Telegram test so a failing
         # strategy cannot skew its latency.

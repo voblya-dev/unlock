@@ -22,34 +22,14 @@ _current = EN
 
 
 _RU: dict[str, str] = {
-    # --- VPN server list
-    "Ping all": "Пинговать все",
-    "Checking…": "Проверяем…",
-    "Unreachable": "Нет ответа",
-    "Server ping": "Пинг сервера",
-    # --- security / missing components
-    "VPN component missing": "Нет компонента VPN",
-    "%s is missing, so some VPN protocols cannot connect.":
-        "%s отсутствует, поэтому часть VPN-протоколов не сможет подключиться.",
-    "Windows Security may have quarantined the file. Open it to review and "
-    "restore the file only if you trust this Unlock installation; otherwise reinstall Unlock.":
-        "Защита Windows могла поместить файл в карантин. Откройте её, проверьте "
-        "карантин и восстановите файл только если доверяете этой установке Unlock; "
-        "иначе переустановите приложение.",
-    "Open Windows Security": "Открыть «Безопасность Windows»",
     # --- window / tabs
     "Home": "Главная",
-    "Routes": "Маршруты",
     "Settings": "Настройки",
     "Logs": "Журнал",
-    "VPN": "VPN",
-    "Главная": "Главная",
-    "Маршруты": "Маршруты",
-    "Настройки": "Настройки",
-    "Журнал": "Журнал",
+    "NETWORK CONTROL": "УПРАВЛЕНИЕ СЕТЬЮ",
     # --- title bar
     "Minimise": "Свернуть",
-    "Maximise": "Развернуть",
+    "Close": "Закрыть",
     # --- states
     "Not protected": "Без защиты",
     "Press the button to enable the bypass": "Нажмите кнопку, чтобы включить обход",
@@ -64,16 +44,23 @@ _RU: dict[str, str] = {
     "Error": "Ошибка",
     "See the Logs tab for details": "Подробности во вкладке «Журнал»",
     # --- home
+    "DPI bypass": "Обход DPI",
     "Latency": "Задержка",
-    "Strategy": "Конфигурация",
-    "Telegram proxy": "Прокси Telegram",
     "Click to offer the proxy to Telegram again.":
         "Нажмите, чтобы снова предложить прокси в Telegram.",
     "Offered the proxy to Telegram.": "Прокси предложен в Telegram.",
     "Start the bypass first — the bridge is not running.":
         "Сначала включите обход — мост не запущен.",
-    "Telegram bridge": "Мост Telegram",    "Not running": "Не запущен",
-    "Re-test / Benchmark": "Перетестировать",
+    "Telegram bridge": "Мост Telegram",
+    "Not running": "Не запущен",
+    "Copy proxy link": "Скопировать ссылку на прокси",
+    "Copies the tg:// proxy link, for pasting into Telegram by hand "
+    "or sending to someone else on this network.":
+        "Копирует ссылку tg:// — её можно вставить в Telegram вручную "
+        "или отправить другому человеку в этой сети.",
+    "Proxy link copied to the clipboard.": "Ссылка на прокси скопирована.",
+    "No proxy link yet — start the bypass first.":
+        "Ссылки пока нет — сначала включите обход.",
     # --- game mode
     "Game mode": "Игровой режим",
     "Voice chat, matchmaking and game traffic go through the bypass too.":
@@ -84,22 +71,17 @@ _RU: dict[str, str] = {
         "Расширяет фильтр на игровой диапазон портов (1024-65535).",
     "Applying the new filter…": "Применяем новый фильтр…",
     # --- settings: general
-    "General": "Общие",
     "Startup": "Запуск",
     "When and how Unlock itself starts.": "Когда и как запускается сам Unlock.",
-    "Launch Unlock when Windows starts": "Запускать вместе с Windows",
-    "Adds Unlock to the Windows startup entries for your account.":
-        "Добавляет Unlock в автозапуск Windows для вашей учётной записи.",
     "Start minimised to tray": "Запускать свёрнутым в трей",
     "No window on launch — Unlock waits in the notification area.":
         "Окно не открывается — Unlock ждёт в области уведомлений.",
-    "Connect automatically on launch": "Подключаться автоматически при запуске",
     "Turn the bypass on automatically": "Включать обход автоматически",
+    "Launch with Windows": "Запускать вместе с Windows",
+    "Starts Unlock minimised to the notification area after you sign in.":
+        "Запускает Unlock свёрнутым в область уведомлений после входа в систему.",
     "Presses the Home button for you as soon as Unlock is up.":
         "Нажимает кнопку на «Главной» сразу после запуска.",
-    "Turn my VPN on automatically": "Включать мой VPN автоматически",
-    "Brings up the selected server on the VPN tab at launch.":
-        "Поднимает выбранный на вкладке «VPN» сервер при запуске.",
     "Play a sound on connect and disconnect":
         "Звук при подключении и отключении",
     "Automatic re-test": "Автоматическая перепроверка",
@@ -108,18 +90,15 @@ _RU: dict[str, str] = {
     # --- settings: appearance
     "Appearance": "Оформление",
     "Theme": "Тема",
-    "Accent": "Акцент",
     "Language": "Язык",
     "Follow Windows": "Как в Windows",
     "Dark": "Тёмная",
     "Light": "Светлая",
-    "blue": "Синий",
-    "green": "Зелёный",
-    "purple": "Фиолетовый",
-    "orange": "Оранжевый",
-    "rose": "Розовый",
+    "Signal tone": "Яркость сигнала",
+    "High contrast": "Высокий контраст",
+    "Balanced": "Сбалансированная",
+    "Dimmed": "Приглушённая",
     # --- settings: engines
-    "Bypass engines": "Движки обхода",
     "What the Home button starts": "Что включает кнопка на «Главной»",
     "Pick the engines the main button turns on. Both can run together; "
     "with both off the button has nothing to do.":
@@ -134,8 +113,6 @@ _RU: dict[str, str] = {
         "Локальный MTProto-прокси, который ведёт Telegram через WebSocket.",
     "Hand the proxy to Telegram automatically":
         "Передавать прокси в Telegram автоматически",
-    "On connect, a running Telegram client is asked to adopt the local proxy.":
-        "При подключении запущенному Telegram предлагается включить локальный прокси.",
     "Watches for Telegram and offers it the local proxy, including after a restart.":
         "Следит за Telegram и передаёт ему локальный прокси, в том числе после перезапуска.",
     "Disguise the Telegram proxy as HTTPS": "Маскировать прокси Telegram под HTTPS",
@@ -152,118 +129,20 @@ _RU: dict[str, str] = {
         "клиенту сразу после запуска — достаточно подтвердить один раз.",
     "DPI strategy": "Конфигурация DPI",
     "Auto (benchmark result)": "Авто (по результатам теста)",
-    "Route traffic through my own VPN": "Пускать трафик через свой VPN",
-    "Start my VPN when Unlock launches": "Запускать мой VPN вместе с Unlock",
-    "The VPN has its own button on the VPN tab — this only preselects it.":
-        "У VPN своя кнопка на вкладке «VPN» — здесь только автозапуск.",
-    "Point the Windows proxy at the VPN": "Направить системный прокси в VPN",
-    "Route every app through the VPN (TUN)":
-        "Направить все приложения через VPN (TUN)",
-    "Creates a virtual network adapter. Needs Administrator rights.":
-        "Создаёт виртуальный сетевой адаптер. Нужны права администратора.",
-    "On: a virtual adapter carries all traffic, so apps that ignore the "
-    "Windows proxy — Telegram, games, anything on UDP — still go through "
-    "the VPN. This is how WireSock and similar clients work.":
-        "Включено: виртуальный адаптер несёт весь трафик, поэтому приложения, "
-        "игнорирующие системный прокси — Telegram, игры, всё на UDP — тоже "
-        "идут через VPN. Так работают WireSock и подобные клиенты.",
-    "Used when TUN is off: Windows sends every app's traffic to the local "
-    "port the tunnel listens on, but apps with their own proxy setting "
-    "ignore it.":
-        "Работает, когда TUN выключен: Windows направляет трафик приложений "
-        "на локальный порт туннеля, но приложения со своими настройками "
-        "прокси это игнорируют.",
-    "Ordinary apps follow the tunnel; the setting is restored on disconnect.":
-        "Обычные приложения пойдут через туннель; при отключении настройка вернётся.",
-    "The VPN has its own button on the VPN tab and runs independently of "
-    "the bypass.":
-        "У VPN своя кнопка на вкладке «VPN», он работает независимо от обхода.",
-    # --- vpn tab
-    "VPN off": "VPN выключен",
-    "VPN on": "VPN включён",
-    "Connect VPN": "Подключить VPN",
-    "Disconnect VPN": "Отключить VPN",
-    "%s · SOCKS 127.0.0.1:%d": "%s · SOCKS 127.0.0.1:%d",
-    "%s · every app is routed through the tunnel":
-        "%s · весь трафик идёт через туннель",
-    # --- live tunnel stats
-    "Time": "Время",
-    "Upload": "Передача",
-    "Download": "Получение",
-    "Quality": "Качество",
-    "Now": "Сейчас",
-    "Total sent": "Всего отправлено",
-    "Total received": "Всего получено",
-    "Ping": "Ping",
-    "Packet loss": "Потери пакетов",
-    "Starting the tunnel": "Запуск туннеля",
-    "Stopping the tunnel": "Остановка туннеля",
-    "Ready: %s": "Готов: %s",
-    "Add a server below, then press the button.":
-        "Добавьте сервер ниже и нажмите кнопку.",
-    "Add a server, then press the button.":
-        "Добавьте сервер и нажмите кнопку.",
-    "Add your own VPN": "Добавить свой VPN",
-    "Connect or disconnect VPN": "Подключить или отключить VPN",
-    "Частный туннель / управление VPN": "Частный туннель / управление VPN",
-    "Нажмите на орбиту для подключения": "Нажмите на орбиту для подключения",
-    "Выбранный маршрут": "Выбранный маршрут",
-    "Сервер не выбран": "Сервер не выбран",
-    "Ожидание": "Ожидание",
-    "Туннель активен": "Туннель активен",
-    "Подключение": "Подключение",
-    "Отключение": "Отключение",
-    "Ошибка подключения": "Ошибка подключения",
-    # --- add-servers dialog
-    "Add servers": "Добавить серверы",
-    "Paste one link per line — vless, vmess, trojan, ss, hysteria2, "
-    "an Amnezia vpn:// link, or a subscription URL. Everything you paste "
-    "and drop is imported together.":
-        "Вставьте по одной ссылке в строке — vless, vmess, trojan, ss, hysteria2, "
-        "ссылку Amnezia vpn:// или адрес подписки. Всё вставленное и перетащенное "
-        "импортируется разом.",
-    "Drop config files or QR images here":
-        "Перетащите сюда файлы конфигурации или QR-коды",
-    "…or click to browse. Several files at once are fine.":
-        "…или нажмите для выбора. Можно сразу несколько файлов.",
-    "Queued files: %s": "Файлы в очереди: %s",
-    "Browse…": "Обзор…",
-    "Cancel": "Отмена",
-    "Import": "Импортировать",
-    "Close": "Закрыть",
-    "Paste a link or add a file first.":
-        "Сначала вставьте ссылку или добавьте файл.",
-    "Nothing importable was found.": "Не найдено ничего для импорта.",
-    "Imported %d, skipped %d:": "Импортировано: %d, пропущено: %d:",
-    "No servers yet — press Add, or drop a config here.":
-        "Серверов пока нет — нажмите «Добавить» или перетащите сюда конфигурацию.",
-    "Paste a vless/vmess/trojan/ss/hysteria2 link, a subscription URL "
-    "or an Amnezia vpn:// link — or import a WireGuard/AmneziaWG .conf, "
-    "a config file or a QR screenshot.":
-        "Вставьте ссылку vless/vmess/trojan/ss/hysteria2, адрес подписки "
-        "или ссылку Amnezia vpn:// — либо импортируйте .conf WireGuard/AmneziaWG, "
-        "файл конфигурации или скриншот QR-кода.",
-    "Add": "Добавить",
-    "From file": "Из файла",
-    "From QR image": "Из QR-кода",
-    "Your servers": "Ваши серверы",
-    "No servers yet.": "Серверов пока нет.",
-    "Remove": "Удалить",
-    "Importing…": "Импорт…",
-    "Added %d server(s)": "Добавлено серверов: %d",
-    "Those servers are already saved": "Эти серверы уже сохранены",
-    "Import a VPN config": "Импорт конфигурации VPN",
-    "Import a QR code": "Импорт QR-кода",
-    "Configs and QR images (*.conf *.txt *.json *.yaml *.yml *.png *.jpg *.jpeg);;All files (*)":
-        "Конфигурации и QR-коды (*.conf *.txt *.json *.yaml *.yml *.png *.jpg *.jpeg);;Все файлы (*)",
-    "Images (*.png *.jpg *.jpeg *.bmp *.webp)":
-        "Изображения (*.png *.jpg *.jpeg *.bmp *.webp)",
-    "%s is missing from this install — servers can be saved now, "
-    "but the tunnel will not start. Reinstall Unlock.":
-        "В установке нет %s — серверы сохранятся, но туннель не запустится. "
-        "Переустановите Unlock.",
-    "Selected: %s": "Выбран: %s",
-    "Not configured": "Не настроен",
+    "Re-test": "Перепроверить",
+    "Times every shipped strategy and keeps the fastest one.":
+        "Замеряет все входящие в сборку конфигурации и оставляет самую быструю.",
+    # --- settings: updates
+    "Updates": "Обновления",
+    "Installed version: %s": "Установленная версия: %s",
+    "Check for a newer Unlock on startup":
+        "Проверять обновления Unlock при запуске",
+    "Asks GitHub for the latest release tag. Nothing is downloaded or "
+    "installed without you.":
+        "Запрашивает у GitHub номер последнего релиза. Ничего не скачивается "
+        "и не устанавливается без вашего участия.",
+    "Version %s is available.": "Доступна версия %s.",
+    "Open the release page": "Открыть страницу релиза",
     # --- settings: files
     "Files": "Файлы",
     # --- logs
@@ -273,9 +152,26 @@ _RU: dict[str, str] = {
     "Disconnect": "Отключить",
     "Show window": "Показать окно",
     "Re-test strategies": "Перетестировать",
+    "DPI profile": "Профиль DPI",
     "Quit": "Выход",
     "Still running in the tray. Use Quit to exit completely.":
         "Приложение свёрнуто в трей. Для полного выхода нажмите «Выход».",
+    # --- tray notifications
+    #
+    # The engine label ("winws", "Telegram bridge") is substituted, so the
+    # sentence has to read correctly with a proper noun in front of it.
+    "%s stopped unexpectedly": "%s неожиданно остановлен",
+    "Restarting it now.": "Перезапускаем.",
+    "%s is running again": "%s снова работает",
+    "Protection restored.": "Защита восстановлена.",
+    "%s could not be restarted": "Не удалось перезапустить: %s",
+    "Turn the bypass off and on again, or see the Logs tab.":
+        "Выключите и включите обход или посмотрите вкладку «Журнал».",
+    "Some services are still unreachable": "Некоторые сервисы всё ещё недоступны",
+    "Not answering: %s": "Не отвечают: %s",
+    "Unlock %s is available": "Доступна версия Unlock %s",
+    "Open Settings for the release page.":
+        "Ссылка на релиз — в настройках.",
     # --- benchmark dialog
     "Finding the best configuration": "Поиск лучшей конфигурации",
     "Benchmarking bypass strategies": "Тестирование конфигураций обхода",
@@ -293,54 +189,42 @@ _RU: dict[str, str] = {
     "Press the button to reopen the test window":
         "Нажмите кнопку, чтобы вернуться к окну проверки",
     "Done": "Готово",
+    "%d/%d endpoints, %s ms": "%d/%d адресов, %s мс",
+    "Selected %s — %s ms": "Выбрана %s — %s мс",
+    "No config passed everything. Best partial: %s (%d/%d endpoints)":
+        "Ни одна конфигурация не прошла всё. Лучшая частичная: %s (%d/%d адресов)",
     "Testing cancelled — pick a strategy in Settings":
         "Тестирование отменено — выберите конфигурацию в настройках",
     "No config unblocked anything. Try again on a different network, "
     "or update the bundled zapret build.":
         "Ни одна конфигурация ничего не разблокировала. Попробуйте другую сеть "
         "или обновите встроенную сборку zapret.",
+    "Testing failed: %s": "Проверка не удалась: %s",
     # --- errors
     "Could not update the Windows startup entry.":
         "Не удалось изменить автозапуск Windows.",
     "Testing Telegram bridge": "Проверка моста Telegram",
-    "Both DPI bypass and Telegram proxy are disabled in Settings.":
-        "В настройках отключены и обход DPI, и прокси Telegram.",
-    "Every bypass engine is disabled in Settings.":
-        "В настройках отключены все движки обхода.",
-    "No VPN server selected — add one in the VPN tab.":
-        "Не выбран VPN-сервер — добавьте его во вкладке «VPN».",
     "Restart Unlock as Administrator — WinDivert needs elevation.":
         "Перезапустите от имени администратора — WinDivert требует прав.",
     "Still finishing the cancelled test — try again in a moment.":
         "Отменённая проверка ещё завершается — повторите через мгновение.",
-    # --- sidebar misc
-    "Tunneling": "Туннелирование",
-    "Search": "Поиск",
-    # --- split tunneling tab
-    "Split Tunneling": "Раздельное туннелирование",
-    "Enable": "Включить",
-    "Disable": "Выключить",
-    "Control which apps, websites, or IPs go through the VPN. "
-    "Blacklist: everything tunnelled except chosen. "
-    "Whitelist: only chosen goes through the VPN.":
-        "Выберите приложения, сайты или IP, которые пойдут через VPN. "
-        "Блоклист: всё идёт через VPN, кроме выбранных. "
-        "Белый список: через VPN идут только выбранные.",
-    "Mode": "Режим",
-    "Blacklist": "Блоклист",
-    "Whitelist": "Белый список",
-    "Apps": "Приложения",
-    "Domains": "Домены",
-    "IPs": "IP-адреса",
-    "+ Add application": "+ Добавить приложение",
-    "example.com or *.example.com": "example.com или *.example.com",
-    "192.168.1.0/24 or 1.2.3.4": "192.168.1.0/24 или 1.2.3.4",
-    "Select application": "Выбрать приложение",
-    "Executables (*.exe);;All files (*)": "Исполняемые файлы (*.exe);;Все файлы (*)",
-    "Split tunneling works in TUN mode only. "
-    "Changes take effect after reconnecting the VPN.":
-        "Раздельное туннелирование работает только в режиме TUN. "
-        "Изменения применяются после переподключения VPN.",
+    "Both bypass engines are disabled in Settings.":
+        "Оба движка обхода выключены в настройках.",
+    "Failed to start": "Не удалось запустить",
+    # --- status line
+    #
+    # Only the messages the controllers emit as plain literals. The ones built
+    # with an f-string cannot be keyed and fall back to English by design.
+    "Starting bypass…": "Запуск обхода…",
+    "Stopping bypass…": "Остановка обхода…",
+    "Bypass stopped": "Обход остановлен",
+    "Disconnected": "Отключено",
+    "Updating the zapret pack…": "Обновление сборки zapret…",
+    "No working DPI strategy found": "Рабочая конфигурация DPI не найдена",
+    "DPI profile saved — applies at next bypass start":
+        "Профиль DPI сохранён — применится при следующем запуске обхода",
+    "Restored the system proxy left by a previous run":
+        "Системный прокси, оставшийся от прошлого запуска, восстановлен",
     # --- site / IP lists
     "Lists": "Списки",
     "Sites and IP": "Сайты и IP",
@@ -352,14 +236,16 @@ _RU: dict[str, str] = {
     "Update AI services": "Обновить AI-сервисы",
     "enable": "Включить",
     "disable": "Выключить",
-    "AI services mode uses the complete hosts bundle from Zapret-GUI, "
+    "AI services mode uses the complete hosts bundle and DNS resolvers from Zapret-GUI, "
     "including its non-AI and ad-block entries. It stays separate from your "
-    "zapret domain/IP lists and is written only inside Unlock's Windows hosts block. "
+    "zapret domain/IP lists; your current DNS is saved and restored when disabled. "
     "Administrator confirmation may be requested. %s it?":
-        "Режим AI-сервисов использует полный пакет hosts из Zapret-GUI, включая "
-        "не-AI записи и блокировку рекламы. Он не смешивается с вашими списками "
-        "доменов/IP zapret и записывается только в отдельный блок Windows hosts. Может потребоваться "
+        "Режим AI-сервисов использует полный набор hosts-записей и DNS-серверов из "
+        "Zapret-GUI, включая записи, не связанные с AI, и блокировку рекламы. Он "
+        "работает отдельно от ваших списков доменов и IP для zapret; текущие DNS "
+        "сохраняются и восстанавливаются при выключении. Может потребоваться "
         "подтверждение администратора. %s?",
+    "Add": "Добавить",
     "Search sites or IPs": "Поиск сайтов или IP",
     "All types": "Все типы",
     "Domain": "Домен",

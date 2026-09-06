@@ -2,8 +2,13 @@
 
 Deliberately not the benchmark. The benchmark scores every strategy against a
 wide target set and takes minutes; this asks one question — "is what I just
-turned on actually working?" — of one endpoint per service, and has to be over
+turned on actually working?" — of one service at a time, and has to be over
 before the user has finished reading the status line.
+
+The question itself is asked by :mod:`unlock.netprobe`, which the benchmark
+shares: a service reported as blocked here while it loads in the browser is the
+single most damaging thing this file can do, so there is exactly one
+implementation of "reachable" in the codebase.
 
 Kept free of Qt so it can be tested directly; :mod:`unlock.controllers.checks`
 wraps it in a QThread.
@@ -12,20 +17,16 @@ wraps it in a QThread.
 from __future__ import annotations
 
 import socket
-import ssl
 import time
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from . import netprobe
 from .constants import SELFTEST_SERVICES, SELFTEST_TIMEOUT
 from .logger import get_logger
 
 log = get_logger("selftest")
-
-_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Unlock/2"
 
 
 @dataclass(frozen=True)
@@ -69,21 +70,22 @@ class SelfTestReport:
         return ", ".join(check.name for check in self.failed)
 
 
-def probe_service(name: str, url: str, timeout: float = SELFTEST_TIMEOUT) -> ServiceCheck:
-    """One HEAD-ish request. Any HTTP answer counts: a 403 from Discord still
-    proves the TLS handshake crossed the DPI, which is the thing being tested."""
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    started = time.perf_counter()
-    context = ssl.create_default_context()
-    try:
-        with urllib.request.urlopen(request, timeout=timeout, context=context):
-            pass
-    except urllib.error.HTTPError:
-        pass  # reached the server; the status code is not what is under test
-    except (urllib.error.URLError, socket.timeout, ssl.SSLError, OSError) as exc:
-        reason = getattr(exc, "reason", exc)
-        return ServiceCheck(name, False, error=str(reason) or exc.__class__.__name__)
-    return ServiceCheck(name, True, (time.perf_counter() - started) * 1000.0)
+def probe_service(
+    name: str,
+    endpoints: str | tuple[str, ...] | list[str],
+    timeout: float = SELFTEST_TIMEOUT,
+) -> ServiceCheck:
+    """Is this service reachable? One name may cover several hosts.
+
+    The first endpoint that completes a TLS handshake settles it. Anything
+    stricter — every host, or an HTTP status code — reports services as blocked
+    that the browser opens without complaint.
+    """
+    urls = (endpoints,) if isinstance(endpoints, str) else tuple(endpoints)
+    result = netprobe.probe_any(urls, timeout=timeout)
+    if not result.ok:
+        return ServiceCheck(name, False, error=result.error)
+    return ServiceCheck(name, True, result.latency_ms)
 
 
 def probe_local_port(name: str, port: int, timeout: float = SELFTEST_TIMEOUT) -> ServiceCheck:
@@ -103,7 +105,7 @@ def probe_local_port(name: str, port: int, timeout: float = SELFTEST_TIMEOUT) ->
 
 def run(
     *,
-    services: dict[str, str] | None = None,
+    services: dict[str, str | tuple[str, ...]] | None = None,
     telegram_port: int | None = None,
     timeout: float = SELFTEST_TIMEOUT,
 ) -> SelfTestReport:
@@ -113,8 +115,8 @@ def run(
     if targets:
         with ThreadPoolExecutor(max_workers=max(1, len(targets))) as pool:
             futures = [
-                pool.submit(probe_service, name, url, timeout)
-                for name, url in targets.items()
+                pool.submit(probe_service, name, endpoints, timeout)
+                for name, endpoints in targets.items()
             ]
             checks.extend(future.result() for future in futures)
     if telegram_port is not None:
