@@ -10,7 +10,7 @@
 ; owned by Windows (Apps > Installed apps > Unlock).
 
 #ifndef MyAppVersion
-#define MyAppVersion "2.1.1"
+#define MyAppVersion "2.2.0"
 #endif
 #define MyAppName "Unlock"
 #define MyAppPublisher "voblya-dev"
