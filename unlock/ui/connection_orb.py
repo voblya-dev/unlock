@@ -1,19 +1,41 @@
-"""Obsidian Terminal connection visual used on Unlock's Home screen."""
+"""The Home screen's primary control: a hand-drawn connection orb.
+
+Everything here is painted rather than styled because the entire signal is
+luminance — the shell segments brighten and rotate as the bypass comes up and
+fade back out when it goes down. No colour is used to convey state.
+"""
 
 from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, pyqtProperty, pyqtSignal
-from PyQt6.QtGui import QFont, QPainter, QPen
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QPointF,
+    QPropertyAnimation,
+    QRectF,
+    Qt,
+    QTimer,
+    pyqtProperty,
+    pyqtSignal,
+)
+from PyQt6.QtGui import QPainter, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
-from ..controller import State
+from ..controllers import State
 from . import theme
 
+# Animation timings. The level transition is deliberately slower than a normal
+# UI easing: it is the one motion the user is meant to watch.
+_LEVEL_MS = 820
+_HOVER_MS = 360
+_PRESS_MS = 180
+_ORBIT_MS = 16
+_ORBIT_STEP = .009
 
-class LighthouseScene(QWidget):
-    """A geometric route pulse; the legacy class name keeps imports stable."""
+
+class ConnectionOrb(QWidget):
+    """A geometric route pulse that doubles as the connect/disconnect button."""
 
     clicked = pyqtSignal()
 
@@ -26,21 +48,22 @@ class LighthouseScene(QWidget):
         self._level = 0.0
         self._visual_target = False
         self._phase = 0.0
-        self._badge: str | None = None
         self._hover = 0.0
         self._press = 0.0
         self._animation = QPropertyAnimation(self, b"level", self)
-        self._animation.setDuration(820)
+        self._animation.setDuration(_LEVEL_MS)
         self._animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self._timer = QTimer(self)
-        self._timer.setInterval(16)
+        self._timer.setInterval(_ORBIT_MS)
         self._timer.timeout.connect(self._advance_orbit)
         self._hover_animation = QPropertyAnimation(self, b"hoverAmount", self)
-        self._hover_animation.setDuration(360)
+        self._hover_animation.setDuration(_HOVER_MS)
         self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._press_animation = QPropertyAnimation(self, b"pressAmount", self)
-        self._press_animation.setDuration(180)
+        self._press_animation.setDuration(_PRESS_MS)
         self._press_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    # ------------------------------------------------------------ properties
 
     def _get_level(self) -> float:
         return self._level
@@ -73,6 +96,8 @@ class LighthouseScene(QWidget):
 
     pressAmount = pyqtProperty(float, fget=_get_press, fset=_set_press)
 
+    # ------------------------------------------------------------ state
+
     def set_state(self, state: State) -> None:
         self._state = state
         # Connecting/disconnecting are operational states. The visual transition
@@ -98,22 +123,19 @@ class LighthouseScene(QWidget):
         self._animation.setEndValue(target)
         self._animation.start()
 
-    def set_badge(self, text: str | None) -> None:
-        self._badge = text
-        self.update()
-
     def restyle(self) -> None:
         self.update()
 
     def _advance_orbit(self) -> None:
-        # Motion exists only while the connection visual is present.  Unlike
-        # the former particle system, this advances one inexpensive scalar and
-        # never competes with the VPN's startup work.
+        # Motion exists only while the connection visual is present: one cheap
+        # scalar per tick, so it never competes with the engines starting up.
         if self._level <= .001:
             self._timer.stop()
             return
-        self._phase = (self._phase + .009) % math.tau
+        self._phase = (self._phase + _ORBIT_STEP) % math.tau
         self.update()
+
+    # ------------------------------------------------------------ painting
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -122,29 +144,16 @@ class LighthouseScene(QWidget):
         self._draw_route(painter)
         painter.end()
 
-    def _draw_grid(self, painter: QPainter) -> None:
-        line = theme.qcolor(theme.CARD_BORDER)
-        line.setAlpha(54 if theme.current_mode() == theme.DARK else 70)
-        painter.setPen(QPen(line, 1.0, Qt.PenStyle.DotLine))
-        for x in range(24, self.width(), 24):
-            painter.drawLine(x, 0, x, self.height())
-        for y in range(24, self.height(), 24):
-            painter.drawLine(0, y, self.width(), y)
-
     def _draw_route(self, painter: QPainter) -> None:
         w, h = self.width(), self.height()
         # The upper offset creates breathing room between the primary control
         # and the telemetry cards below it.
         center = QPointF(w * .50, h * .425 + self._press * 5)
-        # This is deliberately oversized: on the Home screen the planet is the
-        # primary affordance, not an illustration placed next to a button.
-        # Very small amplitude prevents the primary control from looking as if
-        # it is skipping position when the UI thread is busy starting engines.
+        # Deliberately oversized: on Home the orb is the primary affordance, not
+        # an illustration placed next to a button. The hover amplitude is tiny so
+        # it never looks like it is skipping position when the UI thread is busy.
         radius = min(w, h) * (.355 + .014 * self._hover)
         fg = theme.qcolor(theme.TEXT)
-        active = theme.qcolor(theme.ACCENT)
-        if self._state is State.ERROR:
-            active = theme.qcolor(theme.DANGER)
 
         # A double orbital cage gives the control depth before its active state
         # appears; the inner machinery is deliberately more detailed than a
@@ -157,10 +166,9 @@ class LighthouseScene(QWidget):
         painter.setPen(QPen(subtle, .9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
         painter.drawEllipse(outer_box)
         box = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
-        # The existing shell segments provide the only active feedback.  At
-        # rest they are quiet; when connected they brighten to white and orbit
-        # as one precise ring.  On disconnect their brightness eases away
-        # through the same finite transition, then the timer stops.
+        # The shell segments carry the only active feedback. At rest they are
+        # quiet; when connected they brighten to white and orbit as one precise
+        # ring. On disconnect the brightness eases away, then the timer stops.
         segment = theme.qcolor(theme.TEXT_FAINT)
         segment.setAlpha(round(138 + 117 * self._level))
         rotation = math.degrees(self._phase) * self._level
@@ -173,7 +181,7 @@ class LighthouseScene(QWidget):
         painter.setPen(QPen(fg, 1.25))
         painter.drawEllipse(center, core, core)
         # Globe core: equator, two latitude bands and two longitudes make it
-        # feel like an active protected network rather than a static circle.
+        # read as an active protected network rather than a static circle.
         painter.setPen(QPen(fg, 1.4))
         r = core * .60
         painter.drawEllipse(center, r, r)
@@ -182,21 +190,12 @@ class LighthouseScene(QWidget):
         painter.drawLine(QPointF(center.x() - r, center.y()), QPointF(center.x() + r, center.y()))
         painter.drawArc(QRectF(center.x() - r, center.y() - r * .52, r * 2, r * 1.04), 0, 180 * 16)
         painter.drawArc(QRectF(center.x() - r, center.y() - r * .52, r * 2, r * 1.04), 180 * 16, 180 * 16)
-    def _draw_badge(self, painter: QPainter) -> None:
-        if not self._badge:
-            return
-        font = QFont(painter.font())
-        font.setPointSizeF(9.0)
-        font.setWeight(QFont.Weight.DemiBold)
-        painter.setFont(font)
-        box = QRectF(18, self.height() - 40, painter.fontMetrics().horizontalAdvance(self._badge) + 28, 24)
-        painter.setPen(QPen(theme.qcolor(theme.CARD_BORDER), 1.0))
-        painter.setBrush(theme.qcolor(theme.CARD))
-        painter.drawRect(box)
-        painter.setPen(theme.qcolor(theme.TEXT))
-        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, self._badge)
+
+    # ------------------------------------------------------------ interaction
 
     def _planet_rect(self) -> QRectF:
+        """Clickable area. Slightly wider than the drawn core so the whole globe
+        plus its inner cage is a target, but not the empty corners."""
         radius = min(self.width(), self.height()) * .39
         center = QPointF(self.width() * .50, self.height() * .425)
         return QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)

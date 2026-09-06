@@ -15,10 +15,9 @@ from PyQt6.QtWidgets import (
 )
 
 from ..benchmark import BenchmarkReport
-from ..controller import BenchmarkWorker, Controller
+from ..controllers import BenchmarkWorker, Controller
 from . import anim, theme
 from .i18n import tr
-from .seascape import paint_seascape
 
 
 def _fmt_ping(ms: float, lo: int = 110, hi: int = 150) -> str:

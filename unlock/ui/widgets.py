@@ -1,10 +1,19 @@
-"""Custom input widgets: a wheel-proof combo box, an animated pill switch, a
-gamepad glyph, a colour-swatch accent picker, and a sidebar NavButton."""
+"""Custom widgets: an eliding label, a signal trace, a wheel-proof combo box, an
+animated pill switch, a gamepad glyph, a sliding page stack and the sidebar
+NavButton.
+
+The colour-swatch accent picker that used to live here is gone. It offered an
+arbitrary hex value, which the monochrome design language has no room for; the
+three grayscale tonalities it wrapped are now a plain combo box on the Settings
+page (see :mod:`unlock.ui.pages.settings`).
+"""
 
 from __future__ import annotations
 
 from PyQt6.QtCore import (
     QEasingCurve,
+    QParallelAnimationGroup,
+    QPoint,
     QPointF,
     QPropertyAnimation,
     QRect,
@@ -13,13 +22,11 @@ from PyQt6.QtCore import (
     Qt,
     QTimer,
     pyqtProperty,
-    pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -236,13 +243,71 @@ class ClippedPanel(QWidget):
 
 
 class ClippedStackedWidget(QStackedWidget):
-    """Plain QStackedWidget subclass preserved for API compat — no mask."""
+    """Page host that slides between pages instead of cutting to them.
+
+    No mask, despite the name: rounding is the stylesheet's job on
+    ``#contentArea``, and ``setMask`` in a frozen build broke child painting on
+    some Windows machines. The name and the two unused arguments are kept so the
+    window's construction call did not have to change.
+    """
 
     def __init__(self, parent: QWidget | None = None, radius: float = 17.0,
                  corners: int = 2 | 4) -> None:
         super().__init__(parent)
         self._radius = radius
         self._corners = corners
+        self._slide: QParallelAnimationGroup | None = None
+
+    def slide_to(self, index: int) -> None:
+        """Switch pages, sliding the new one in from the side it lives on.
+
+        Direction follows the navigation rail: a page further down the sidebar
+        enters from the right and one further up from the left, so the motion
+        agrees with where the user just clicked. Falls back to an instant switch
+        when there is nothing to animate — same page, no geometry yet, or a
+        slide already running, where a second animation would leave one of the
+        pages parked off screen.
+        """
+        outgoing = self.currentWidget()
+        incoming = self.widget(index)
+        width = self.width()
+        if (incoming is None or incoming is outgoing
+                or width <= 0 or self._slide is not None):
+            if incoming is not None:
+                self.setCurrentIndex(index)
+            return
+
+        offset = width if index > self.currentIndex() else -width
+        # The page has never been laid out at this size while it was hidden, so
+        # it is given the viewport's geometry before being moved into place.
+        incoming.setGeometry(0, 0, width, self.height())
+        incoming.move(offset, 0)
+        incoming.show()
+        incoming.raise_()
+
+        group = QParallelAnimationGroup(self)
+        for page, start, end in (
+            (outgoing, QPoint(0, 0), QPoint(-offset, 0)),
+            (incoming, QPoint(offset, 0), QPoint(0, 0)),
+        ):
+            move = QPropertyAnimation(page, b"pos", group)
+            move.setDuration(anim.NORMAL)
+            move.setEasingCurve(anim.EASE)
+            move.setStartValue(start)
+            move.setEndValue(end)
+            group.addAnimation(move)
+
+        def landed() -> None:
+            self._slide = None
+            # setCurrentIndex is what actually hides the old page; until it runs
+            # both are visible, which is the whole point of the transition.
+            self.setCurrentIndex(index)
+            outgoing.move(0, 0)
+            incoming.move(0, 0)
+
+        group.finished.connect(landed)
+        self._slide = group
+        group.start(QParallelAnimationGroup.DeletionPolicy.DeleteWhenStopped)
 
 
 class NoScrollComboBox(QComboBox):
@@ -277,7 +342,6 @@ class Switch(QCheckBox):
         self.setSizePolicy(policy)
 
         self._pos = 1.0 if self.isChecked() else 0.0
-        self._highlighted = False
         self._slide = QPropertyAnimation(self, b"knob", self)
         self._slide.setDuration(anim.NORMAL)
         self._slide.setEasingCurve(QEasingCurve.Type.OutBack)
@@ -300,17 +364,6 @@ class Switch(QCheckBox):
         self._slide.setStartValue(self._pos)
         self._slide.setEndValue(1.0 if checked else 0.0)
         self._slide.start()
-
-    def highlight(self, duration: int = 1800) -> None:
-        """Flash the text colour briefly to indicate a search hit."""
-        self._highlighted = True
-        self.update()
-        QTimer = __import__("PyQt6.QtCore", fromlist=["QTimer"]).QTimer
-        QTimer.singleShot(duration, self._clear_highlight)
-
-    def _clear_highlight(self) -> None:
-        self._highlighted = False
-        self.update()
 
     def setChecked(self, checked: bool) -> None:
         super().setChecked(checked)
@@ -397,9 +450,7 @@ class Switch(QCheckBox):
         )
 
         if self.text():
-            hl = getattr(self, "_highlighted", False)
-            text_color = QColor(theme.ACCENT if hl else (theme.TEXT if enabled else theme.TEXT_FAINT))
-            painter.setPen(text_color)
+            painter.setPen(theme.qcolor(theme.TEXT if enabled else theme.TEXT_FAINT))
             painter.setFont(self.font())
             painter.drawText(
                 self._text_rect(self.width(), self.height()),
@@ -458,244 +509,6 @@ class GamepadGlyph(QWidget):
             )
 
 
-_SWATCH_D = 24  # diameter of each swatch circle
-
-
-class _Swatch(QWidget):
-    """Single animated colour circle for ColorSwatchPicker."""
-
-    clicked       = pyqtSignal()
-    right_clicked = pyqtSignal()
-
-    def __init__(self, color: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.color = color
-        self._selected = False
-        self._scale = 1.0
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(_SWATCH_D + 8, _SWATCH_D + 8)
-        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-
-        self._anim = QPropertyAnimation(self, b"scale", self)
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutBack)
-
-    def _get_scale(self) -> float:
-        return self._scale
-
-    def _set_scale(self, v: float) -> None:
-        self._scale = v
-        self.update()
-
-    scale = pyqtProperty(float, fget=_get_scale, fset=_set_scale)
-
-    def set_selected(self, selected: bool, animated: bool = True) -> None:
-        self._selected = selected
-        target = 1.15 if selected else 1.0
-        if animated:
-            self._anim.stop()
-            self._anim.setStartValue(self._scale)
-            self._anim.setEndValue(target)
-            self._anim.start()
-        else:
-            self._scale = target
-            self.update()
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-        elif event.button() == Qt.MouseButton.RightButton:
-            self.right_clicked.emit()
-
-    def enterEvent(self, event) -> None:
-        if not self._selected:
-            self._anim.stop()
-            self._anim.setStartValue(self._scale)
-            self._anim.setEndValue(1.08)
-            self._anim.start()
-
-    def leaveEvent(self, event) -> None:
-        if not self._selected:
-            self._anim.stop()
-            self._anim.setStartValue(self._scale)
-            self._anim.setEndValue(1.0)
-            self._anim.start()
-
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        cx = self.width() / 2
-        cy = self.height() / 2
-        r = (_SWATCH_D / 2) * self._scale
-
-        fill = QColor(self.color)
-        if self._selected:
-            # White ring around selected swatch
-            ring_r = r + 2.5
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(theme.TEXT))
-            painter.drawEllipse(QRectF(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2))
-            # Slight gap
-            gap_r = r + 1.0
-            painter.setBrush(QColor(theme.BG))
-            painter.drawEllipse(QRectF(cx - gap_r, cy - gap_r, gap_r * 2, gap_r * 2))
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(fill)
-        painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
-
-
-class _PlusButton(_Swatch):
-    """Dashed circle with '+' — always stays as the 'add' button."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("#00000000", parent)
-
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx = self.width() / 2
-        cy = self.height() / 2
-        r  = (_SWATCH_D / 2) * self._scale
-        pen = QPen(QColor(theme.TEXT_FAINT), 1.5, Qt.PenStyle.DashLine)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
-        arm = r * 0.38
-        pen2 = QPen(QColor(theme.TEXT_MUTED), 1.8, Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen2)
-        painter.drawLine(QPointF(cx - arm, cy), QPointF(cx + arm, cy))
-        painter.drawLine(QPointF(cx, cy - arm), QPointF(cx, cy + arm))
-
-
-class ColorSwatchPicker(QWidget):
-    """Preset swatches + multiple custom colour circles, each opening a popup picker."""
-
-    accent_changed = pyqtSignal(str)
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._current: str = ""
-        self._swatches: dict[str, _Swatch] = {}   # preset key → swatch
-        self._custom_swatches: list[_Swatch] = []  # hex → swatch (can be many)
-        self._popup = None
-
-        self._row = QHBoxLayout(self)
-        self._row.setContentsMargins(0, 0, 0, 0)
-        self._row.setSpacing(4)
-
-        for key, shades in theme.ACCENTS.items():
-            sw = _Swatch(shades["dark"][0], self)
-            sw.clicked.connect(lambda k=key: self._pick_preset(k))
-            self._swatches[key] = sw
-            self._row.addWidget(sw)
-
-        self._btn_add = _PlusButton(self)
-        self._btn_add.setToolTip("Add custom colour")
-        self._btn_add.clicked.connect(self._open_picker)
-        self._row.addWidget(self._btn_add)
-        self._row.addStretch(1)
-
-    # ── public ────────────────────────────────────────────────────────────────
-
-    def current_accent(self) -> str:
-        return self._current
-
-    def set_accent(self, value: str) -> None:
-        self._current = value
-        is_hex = theme.is_custom_hex(value)
-        for k, sw in self._swatches.items():
-            sw.set_selected(not is_hex and k == value, animated=False)
-        matched = False
-        for sw in self._custom_swatches:
-            sel = is_hex and sw.color == value
-            sw.set_selected(sel, animated=False)
-            if sel:
-                matched = True
-        if is_hex and not matched:
-            self._add_custom_swatch(value, select=True, animated=False)
-
-    # ── internal ──────────────────────────────────────────────────────────────
-
-    def _add_custom_swatch(self, hex_val: str, *, select: bool, animated: bool = True) -> _Swatch:
-        sw = _Swatch(hex_val, self)
-        sw.clicked.connect(lambda h=hex_val, s=sw: self._on_custom_clicked(h, s))
-        sw.right_clicked.connect(lambda s=sw: self._remove_custom_swatch(s))
-        sw.setToolTip("Left click — select   |   Right click — remove")
-        self._custom_swatches.append(sw)
-        idx = self._row.count() - 2   # before btn_add and stretch
-        self._row.insertWidget(idx, sw)
-        if select:
-            sw.set_selected(True, animated=animated)
-        return sw
-
-    def _remove_custom_swatch(self, swatch: _Swatch) -> None:
-        if swatch not in self._custom_swatches:
-            return
-        was_selected = swatch.color == self._current
-        self._custom_swatches.remove(swatch)
-        self._row.removeWidget(swatch)
-        swatch.deleteLater()
-        if was_selected:
-            # fall back to first preset
-            first_key = next(iter(self._swatches))
-            self._pick_preset(first_key)
-
-    def _on_custom_clicked(self, hex_val: str, swatch: _Swatch) -> None:
-        # Single click → select; already selected → re-open picker to edit
-        if self._current == hex_val:
-            self._open_picker(initial_hex=hex_val, edit_swatch=swatch)
-            return
-        self._current = hex_val
-        for sw in self._swatches.values():
-            sw.set_selected(False)
-        for sw in self._custom_swatches:
-            sw.set_selected(sw is swatch)
-        self.accent_changed.emit(hex_val)
-
-    def _pick_preset(self, key: str) -> None:
-        if self._current == key:
-            return
-        self._current = key
-        for k, sw in self._swatches.items():
-            sw.set_selected(k == key)
-        for sw in self._custom_swatches:
-            sw.set_selected(False)
-        self.accent_changed.emit(key)
-
-    def _open_picker(self, *, initial_hex: str = "", edit_swatch: "_Swatch | None" = None) -> None:
-        from .color_picker import ColorPickerPopup
-        if self._popup is not None:
-            self._popup.close()
-        initial = QColor(initial_hex) if initial_hex else QColor(theme.ACCENT)
-        popup = ColorPickerPopup(initial, self)
-        self._popup = popup
-        popup.color_selected.connect(
-            lambda h, es=edit_swatch: self._on_color_selected(h, es)
-        )
-        popup.show_above(self._btn_add)
-
-    def _on_color_selected(self, hex_val: str, edit_swatch: "_Swatch | None") -> None:
-        self._popup = None
-        if edit_swatch is not None:
-            # Update existing swatch colour
-            edit_swatch.color = hex_val
-            edit_swatch.update()
-            self._current = hex_val
-            self.accent_changed.emit(hex_val)
-            return
-        # New custom colour — add a fresh swatch
-        for sw in self._swatches.values():
-            sw.set_selected(False)
-        for sw in self._custom_swatches:
-            sw.set_selected(False)
-        self._add_custom_swatch(hex_val, select=True)
-        self._current = hex_val
-        self.accent_changed.emit(hex_val)
-
-
 # ---------------------------------------------------------------------------
 # Sidebar navigation button
 # ---------------------------------------------------------------------------
@@ -739,20 +552,6 @@ def _paint_nav_icon(
         dw, dh = h * 0.32, h * 0.50
         painter.drawRect(QRectF(cx - dw, cy + h * 0.90 - dh, dw * 2, dh))
 
-    elif icon == "shield":
-        # Shield: rounded top, pointed bottom
-        path = QPainterPath()
-        path.moveTo(cx, cy - h * 0.92)
-        path.lineTo(cx - h * 0.70, cy - h * 0.60)
-        path.lineTo(cx - h * 0.70, cy + h * 0.08)
-        path.quadTo(QPointF(cx - h * 0.70, cy + h * 0.55),
-                    QPointF(cx,             cy + h * 0.92))
-        path.quadTo(QPointF(cx + h * 0.70, cy + h * 0.55),
-                    QPointF(cx + h * 0.70, cy + h * 0.08))
-        path.lineTo(cx + h * 0.70, cy - h * 0.60)
-        path.closeSubpath()
-        painter.drawPath(path)
-
     elif icon == "gear":
         # Circle with 6 small rectangular teeth
         inner_r = h * 0.38
@@ -786,34 +585,15 @@ def _paint_nav_icon(
                 QPointF(cx + h * 0.70, cy + dy),
             )
 
-    elif icon == "split":
-        # Two diverging arrows from a single origin — represents split tunneling.
-        import math
-        pen2 = QPen(color, max(1.3, sz * 0.085), Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(pen2)
-        ox, oy = cx - h * 0.65, cy          # left origin
-        # Upper branch
-        ux, uy = cx + h * 0.65, cy - h * 0.55
-        painter.drawLine(QPointF(ox, oy), QPointF(ux, uy))
-        # Arrowhead upper
-        ang = math.atan2(uy - oy, ux - ox)
-        for da in (math.radians(145), math.radians(-145)):
-            painter.drawLine(
-                QPointF(ux, uy),
-                QPointF(ux + h * 0.28 * math.cos(ang + da),
-                        uy + h * 0.28 * math.sin(ang + da)),
-            )
-        # Lower branch
-        lx, ly = cx + h * 0.65, cy + h * 0.55
-        painter.drawLine(QPointF(ox, oy), QPointF(lx, ly))
-        ang2 = math.atan2(ly - oy, lx - ox)
-        for da in (math.radians(145), math.radians(-145)):
-            painter.drawLine(
-                QPointF(lx, ly),
-                QPointF(lx + h * 0.28 * math.cos(ang2 + da),
-                        ly + h * 0.28 * math.sin(ang2 + da)),
-            )
+    elif icon == "terminal":
+        # Prompt caret plus a cursor rule: the Logs tab is a console, and it has
+        # to be distinguishable from the site lists at a glance in the rail.
+        painter.drawLine(QPointF(cx - h * 0.62, cy - h * 0.34),
+                         QPointF(cx - h * 0.18, cy + h * 0.04))
+        painter.drawLine(QPointF(cx - h * 0.18, cy + h * 0.04),
+                         QPointF(cx - h * 0.62, cy + h * 0.42))
+        painter.drawLine(QPointF(cx + h * 0.06, cy + h * 0.42),
+                         QPointF(cx + h * 0.68, cy + h * 0.42))
 
     else:
         painter.drawEllipse(QRectF(cx - h * 0.60, cy - h * 0.60,

@@ -41,7 +41,7 @@ from ..site_lists import (
 )
 from . import anim, theme
 from .i18n import tr
-from .seascape import SeascapePage
+from .canvas import TerminalPage
 from .widgets import ElidedLabel, Switch
 
 
@@ -333,7 +333,7 @@ class HostMappingRow(QFrame):
         row.addWidget(remove)
 
 
-class SitesTab(SeascapePage):
+class SitesTab(TerminalPage):
     """Modern list manager with search, AI hosts mode and hosts opt-in."""
 
     def __init__(self, controller, parent=None) -> None:

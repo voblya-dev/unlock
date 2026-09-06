@@ -119,11 +119,27 @@ def _extract_pack(payload: bytes, destination: Path) -> None:
         raise ZapretUpdateError("Downloaded zapret pack has no runnable presets")
 
 
-def bootstrap() -> ZapretUpdateResult:
-    """Ensure a local pack, then attempt a fresh GitHub release update."""
+def ensure_local_pack() -> None:
+    """Guarantee a runnable pack in ``ZAPRET_DIR``. Touches no network.
+
+    Called synchronously before the window appears: without a pack winws cannot
+    start at all, and the UI would come up offering protection it could not
+    deliver. Copying the bundled directory is local filesystem work and finishes
+    in well under a second.
+    """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not _valid_pack(ZAPRET_DIR):
         _copy_bundled_pack()
+
+
+def update_from_github() -> ZapretUpdateResult:
+    """Replace the active pack with the latest release, if one can be fetched.
+
+    The slow half of startup — a release lookup plus a download of up to a few
+    hundred megabytes — so it runs on a worker thread while the window is already
+    usable. A failure is not an error path: the verified local pack stays in
+    place, which is the whole point of installing it first.
+    """
     try:
         version, url = _latest_release()
         payload = _download(url)
@@ -149,3 +165,14 @@ def bootstrap() -> ZapretUpdateResult:
     except Exception as exc:  # network failures must never prevent protection
         log.warning("Could not update zapret; using local pack: %s", exc)
         return ZapretUpdateResult("cache", detail=str(exc))
+
+
+def bootstrap() -> ZapretUpdateResult:
+    """Ensure a local pack, then attempt a fresh GitHub release update.
+
+    Both halves back to back, for callers with nowhere to put a worker thread —
+    the packaging and diagnostic tools. The application splits them so the
+    download cannot delay the window.
+    """
+    ensure_local_pack()
+    return update_from_github()

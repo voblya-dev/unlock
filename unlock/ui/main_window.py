@@ -1,46 +1,44 @@
-"""Frameless main window: Home / Settings / Logs tabs plus tray integration."""
+"""Frameless main window: sidebar navigation, the page stack and the tray.
+
+What is left here is the shell. The four pages are built by
+:mod:`unlock.ui.pages` and :mod:`unlock.ui.sites_tab`; this module owns the frame
+(resize grips, drag band, fade), the navigation rail, the tray icon and its menu,
+and the routing between controller signals and whichever page cares about them.
+
+Notifications go through the tray rather than the status line for anything the
+user needs to know while the window is hidden — a crashed engine or a newer
+release is exactly the case where Unlock is minimised and the Home page nobody is
+looking at would be the only place it was ever mentioned.
+"""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import (
-    QEasingCurve,
-    QPropertyAnimation,
-    Qt,
-    QTimer,
-    pyqtSlot,
-)
-from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence, QMouseEvent, QShortcut
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSlot
+from PyQt6.QtGui import QAction, QCloseEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMenu,
-    QPlainTextEdit,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
-    QStackedWidget,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import logger, sounds
-from .. import autostart
-from ..constants import APP_NAME, APP_VERSION, CONFIG_PATH, LOG_PATH
-from ..controller import Controller, State
+from .. import logger
+from ..constants import APP_NAME
+from ..controllers import BUSY_STATES, Controller, State
 from ..strategies import load_strategies
-from . import anim, i18n, icons, theme
+from . import anim, i18n, icons, ripple, theme
 from .benchmark_dialog import BenchmarkDialog
+from .canvas import paint_content_panel
 from .i18n import tr
-from .lighthouse_scene import LighthouseScene
-from .seascape import SeascapePage, paint_content_panel
+from .pages import HomePage, LogsPage, SettingsPage, state_headline
 from .sites_tab import SitesTab
-from .widgets import ColorSwatchPicker, ClippedPanel, ClippedStackedWidget, ElidedLabel, GamepadGlyph, MetricGlyph, NavButton, NoScrollComboBox, SignalGraph, Switch
+from .widgets import ClippedPanel, ClippedStackedWidget, NavButton
 
 log = logger.get_logger("ui")
 
@@ -50,7 +48,7 @@ _HEADER_H = 46
 _SIDEBAR_W = 160
 _RESIZE_MARGIN = 10
 _CORNER_GRIP = 20
-_CORNER_RADIUS = 18
+_NOTIFY_MS = 6000
 
 # Plain bit flags rather than Qt.Edge: PyQt6 wraps that enum in a type that
 # refuses int(), which makes an "no edges" value awkward to express.
@@ -116,21 +114,6 @@ class _ContentPanel(QWidget):
     def restyle(self) -> None:
         self.update()
 
-_STATE_TEXT = {
-    State.IDLE: ("Not protected", "Press the button to enable the bypass"),
-    State.CONNECTING: ("Connecting…", "Starting the bypass engines"),
-    State.ACTIVE: ("Protected", "Bypass active"),
-    State.DISCONNECTING: ("Disconnecting…", "Stopping the bypass engines"),
-    State.BENCHMARKING: ("Benchmarking…", "Testing strategies"),
-    State.ERROR: ("Error", "See the Logs tab for details"),
-}
-
-
-def _card() -> QFrame:
-    frame = QFrame()
-    frame.setObjectName("card")
-    return frame
-
 
 def _open_softly(dialog, *, duration: int = 300) -> None:
     """Show a dialog with a short fade instead of a hard pop."""
@@ -182,7 +165,7 @@ class MainWindow(QWidget):
         self._layout_grips()
         self._build_tray()
         self._wire_controller()
-        self._load_settings_into_ui()
+        self._settings.load_from_config()
         self._apply_state(controller.state)
 
     # ------------------------------------------------------------------ UI
@@ -211,6 +194,11 @@ class MainWindow(QWidget):
 
         root.addWidget(self._build_sidebar())
         root.addWidget(right, 1)
+
+        # One pass over everything built above, rather than a ripple argument on
+        # every button: presses are feedback, not behaviour, and the pages should
+        # not have to know that the window wants them animated.
+        ripple.install_all(self)
 
     # ── Sidebar ────────────────────────────────────────────────────────────
 
@@ -241,111 +229,18 @@ class MainWindow(QWidget):
         row.setContentsMargins(18, 0, 14, 0)
         row.setSpacing(9)
 
-        # App icon (small pixmap from the tray icon factory)
-        from . import icons as _icons
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(_icons.app_mark_pixmap("#ffffff", 32))
-        icon_lbl.setFixedSize(32, 32)
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        row.addWidget(icon_lbl)
+        mark = QLabel()
+        mark.setPixmap(icons.app_mark_pixmap("#ffffff", 32))
+        mark.setFixedSize(32, 32)
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row.addWidget(mark)
+
         wordmark = QLabel("UNLOCK")
         wordmark.setObjectName("sidebarWordmark")
         row.addWidget(wordmark)
         row.addStretch(1)
 
         return header
-
-    def _build_search_bar(self) -> QWidget:
-        """Search field with '/' hotkey badge. Pressing '/' focuses the field."""
-        container = QWidget()
-        container.setObjectName("searchBar")
-        container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        container.setFixedHeight(34)
-
-        row = QHBoxLayout(container)
-        row.setContentsMargins(10, 0, 8, 0)
-        row.setSpacing(6)
-
-        # Search icon (magnifying glass via unicode)
-        loup = QLabel("⌕")
-        loup.setObjectName("hint")
-        loup.setStyleSheet("font-size: 18px;")
-        loup.setFixedWidth(20)
-        row.addWidget(loup)
-
-        self._search = QLineEdit()
-        self._search.setObjectName("searchField")
-        self._search.setPlaceholderText(tr("Search"))
-        self._search.setFrame(False)
-        self._search.textChanged.connect(self._filter_nav)
-        self._search.returnPressed.connect(self._search_commit)
-        row.addWidget(self._search, 1)
-
-        # '/' key focuses the search field (while it is not already focused)
-        shortcut = QShortcut(QKeySequence("/"), self)
-        shortcut.activated.connect(self._focus_search)
-
-        return container
-
-    def _focus_search(self) -> None:
-        if not self._search.hasFocus():
-            self._search.setFocus()
-            self._search.selectAll()
-
-    def _filter_nav(self, text: str) -> None:
-        q = text.strip().lower()
-        for btn in self._nav_buttons:
-            btn.setVisible(not q or q in btn.text().lower())
-
-    def _search_commit(self) -> None:
-        q = self._search.text().strip().lower()
-        if not q:
-            return
-        for page_idx in range(self._pages.count()):
-            root = self._pages.widget(page_idx)
-            # Settings page is wrapped in QScrollArea — unwrap to reach content
-            if isinstance(root, QScrollArea):
-                root = root.widget()
-            if root is None:
-                continue
-            matches: list = []
-            for w in root.findChildren(QWidget):
-                texts: list[str] = []
-                try:
-                    t = w.text()
-                    if t:
-                        texts.append(t)
-                except AttributeError:
-                    pass
-                try:
-                    t = w.toolTip()
-                    if t:
-                        texts.append(t)
-                except AttributeError:
-                    pass
-                if any(q in t.lower() for t in texts):
-                    matches.append(w)
-            if matches:
-                self._set_nav_page(page_idx)
-                self._search.clear()
-                for btn in self._nav_buttons:
-                    btn.setVisible(True)
-                self._highlight_labels(matches)
-                return
-
-    def _highlight_labels(self, widgets: list) -> None:
-        from .widgets import Switch
-        orig: dict = {}
-        for w in widgets:
-            if isinstance(w, Switch):
-                w.highlight(1800)
-            else:
-                orig[w] = w.styleSheet()
-                w.setStyleSheet((w.styleSheet() or "") + f"; color: {theme.ACCENT};")
-        def _revert() -> None:
-            for w, st in orig.items():
-                w.setStyleSheet(st)
-        QTimer.singleShot(1800, _revert)
 
     def _build_nav_list(self) -> QWidget:
         """Vertical list of sidebar navigation buttons."""
@@ -354,20 +249,19 @@ class MainWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        nav_defs = list(zip(
-            ("home", "list", "gear", "list"),
-            self._nav_labels(),
-        ))
         self._nav_buttons: list[NavButton] = []
-        for i, (icon, label) in enumerate(nav_defs):
-            btn = NavButton(icon, label)
-            btn.setToolTip(label.title())
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.clicked.connect(lambda checked=False, idx=i: self._set_nav_page(idx))
-            layout.addWidget(btn)
-            self._nav_buttons.append(btn)
+        for index, (icon, label) in enumerate(zip(
+            ("home", "list", "gear", "terminal"), self._nav_labels()
+        )):
+            button = NavButton(icon, label)
+            button.setToolTip(label.title())
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            button.clicked.connect(
+                lambda _checked=False, idx=index: self._set_nav_page(idx)
+            )
+            layout.addWidget(button)
+            self._nav_buttons.append(button)
 
-        # Home is selected by default
         self._nav_buttons[0].set_active(True)
         return container
 
@@ -382,10 +276,10 @@ class MainWindow(QWidget):
         ]
 
     def _set_nav_page(self, index: int) -> None:
-        """Switch the content stack and update active nav button."""
-        for i, btn in enumerate(self._nav_buttons):
-            btn.set_active(i == index)
-        self._pages.setCurrentIndex(index)
+        """Switch the content stack and update the active nav button."""
+        for position, button in enumerate(self._nav_buttons):
+            button.set_active(position == index)
+        self._pages.slide_to(index)
 
     # ── Right panel ────────────────────────────────────────────────────────
 
@@ -413,6 +307,7 @@ class MainWindow(QWidget):
         row = QHBoxLayout(bar)
         row.setContentsMargins(28, 0, 18, 0)
         row.setSpacing(18)
+
         mark = QLabel("UNLOCK / УПРАВЛЕНИЕ СЕТЬЮ")
         mark.setObjectName("terminalTitle")
         row.addWidget(mark)
@@ -421,500 +316,56 @@ class MainWindow(QWidget):
             dot.setObjectName("terminalDot")
             row.addWidget(dot)
         row.addStretch(1)
+
         for text, callback in (("−", self._minimise), ("×", self.close)):
-            btn = QPushButton(text)
-            btn.setObjectName("terminalWindowButton")
-            btn.setFixedSize(28, 28)
-            btn.clicked.connect(callback)
-            row.addWidget(btn)
+            button = QPushButton(text)
+            button.setObjectName("terminalWindowButton")
+            button.setFixedSize(28, 28)
+            button.clicked.connect(callback)
+            row.addWidget(button)
         return bar
 
     def _populate_pages(self) -> None:
-        self._pages.addWidget(self._build_home_tab())       # 0
-        self._sites_tab = SitesTab(self._controller)
-        self._pages.addWidget(self._sites_tab)              # 1
-        self._pages.addWidget(self._build_settings_tab())   # 2
-        self._pages.addWidget(self._build_logs_tab())       # 3
+        self._home = HomePage(self._controller)
+        self._home.power_clicked.connect(self._on_power_clicked)
+        self._pages.addWidget(self._home)                    # 0
+
+        self._sites = SitesTab(self._controller)
+        self._pages.addWidget(self._sites)                   # 1
+
+        self._settings = SettingsPage(self._controller)
+        self._settings.benchmark_requested.connect(
+            lambda: self.run_benchmark(first_run=False)
+        )
+        self._settings.theme_changed.connect(self._restyle)
+        self._settings.language_changed.connect(self._on_language_changed)
+        self._pages.addWidget(self._settings)                # 2
+
+        self._logs = LogsPage()
+        self._pages.addWidget(self._logs)                    # 3
+
+        ripple.install_all(self._pages)
 
     def _rebuild_tabs(self) -> None:
         """Recreate every page so freshly translated labels take effect."""
         current = self._pages.currentIndex()
-        history = self._log_view.toPlainText()
+        history = self._logs.history()
+        self._logs.close_page()
 
-        self._log_timer.stop()
-        logger.unsubscribe(self._pending_logs.append)
         while self._pages.count():
             page = self._pages.widget(0)
             self._pages.removeWidget(page)
             page.deleteLater()
 
         self._populate_pages()
-        self._log_view.setPlainText(history)
+        self._logs.set_history(history)
         self._pages.setCurrentIndex(current)
-        # Re-sync nav button labels after language change
-        nav_labels = self._nav_labels()
-        for btn, label in zip(self._nav_buttons, nav_labels):
-            btn.setText(label)
-        self._load_settings_into_ui()
+        for button, label in zip(self._nav_buttons, self._nav_labels()):
+            button.setText(label)
+        self._settings.load_from_config()
         self._apply_state(self._controller.state)
 
-    def _build_home_tab(self) -> QWidget:
-        page = QWidget()
-        page.setObjectName("commandHome")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(48, 16, 48, 32)
-        layout.setSpacing(22)
-
-        # The planet itself is the only primary control, precisely like the
-        # approved reference. There is no secondary connect button below it.
-        self._power = LighthouseScene()
-        self._power.clicked.connect(self._on_power_clicked)
-        layout.addWidget(self._power, 1)
-
-        telemetry = QHBoxLayout()
-        telemetry.setSpacing(18)
-        self._strategy_value = ElidedLabel("—")
-        # This is intentionally synthetic dashboard telemetry. Show a stable
-        # initial reading immediately; the worker softly updates it once the
-        # bypass is active instead of leaving the card empty.
-        self._ping_value = ElidedLabel("96 мс")
-        self._telegram_value = ElidedLabel("—")
-        for glyph_kind, caption, value, samples in (
-            ("bypass", "ОБХОД DPI", self._strategy_value, (.32, .38, .28, .56, .44, .74, .62, .80)),
-            ("latency", "ЗАДЕРЖКА", self._ping_value, (.72, .55, .62, .35, .48, .29, .42, .24)),
-            ("telegram", "TELEGRAM", self._telegram_value, (.22, .30, .58, .40, .66, .52, .74, .68)),
-        ):
-            metric = QFrame()
-            metric.setObjectName("referenceMetric")
-            metric.setMinimumHeight(112)
-            if glyph_kind == "telegram":
-                # The whole telemetry card is an affordance: not only the
-                # changing value line. This makes retrying the tg:// handoff
-                # immediate and discoverable.
-                metric.setCursor(Qt.CursorShape.PointingHandCursor)
-                metric.setToolTip(tr("Click to offer the proxy to Telegram again."))
-                metric.mouseReleaseEvent = self._on_telegram_clicked
-            row = QVBoxLayout(metric)
-            row.setContentsMargins(22, 18, 22, 18)
-            row.setSpacing(4)
-            header = QHBoxLayout()
-            header.setSpacing(9)
-            glyph = MetricGlyph(glyph_kind)
-            glyph.setObjectName("referenceMetricGlyph")
-            header.addWidget(glyph)
-            label = QLabel(caption)
-            label.setObjectName("metricLabel")
-            header.addWidget(label, 1)
-            row.addLayout(header)
-            value.setObjectName("referenceMetricValue")
-            row.addWidget(value)
-            row.addWidget(SignalGraph(samples))
-            telemetry.addWidget(metric, 1)
-        layout.addLayout(telemetry)
-
-        # Kept as nonvisual receivers for the existing controller/status
-        # wiring. Important state is represented by the planet and telemetry.
-        self._headline = QLabel()
-        self._detail = QLabel()
-        self._retest = QPushButton(tr("Re-test / Benchmark"))
-        self._retest.clicked.connect(lambda: self.run_benchmark(first_run=False))
-        self._cb_game = Switch()
-        self._cb_game.toggled.connect(self._on_game_filter_toggled)
-        self._game_hint = QLabel()
-        self._game_glyph = GamepadGlyph()
-        self._latency_value = QLabel("—")
-        self._latency_tween = anim.ValueTween(
-            self._latency_value, self._paint_latency
-        )
-        for widget in (self._headline, self._detail, self._retest, self._cb_game,
-                       self._game_hint, self._game_glyph, self._latency_value):
-            widget.hide()
-
-        return page
-
-    def _build_game_card(self) -> QWidget:
-        """Game mode: the one bypass setting worth surfacing outside Settings.
-
-        It is the difference between "web pages load" and "voice chat and
-        matchmaking work", so it belongs where the power button is rather than
-        four cards down a settings list.
-        """
-        card = _card()
-        row = QHBoxLayout(card)
-        row.setContentsMargins(16, 12, 16, 12)
-        row.setSpacing(12)
-
-        self._game_glyph = GamepadGlyph()
-        row.addWidget(self._game_glyph, 0, Qt.AlignmentFlag.AlignTop)
-
-        text = QVBoxLayout()
-        text.setSpacing(2)
-        title = QLabel(tr("Game mode"))
-        title.setObjectName("sectionTitle")
-        text.addWidget(title)
-
-        self._game_hint = QLabel()
-        self._game_hint.setObjectName("hint")
-        self._game_hint.setWordWrap(True)
-        text.addWidget(self._game_hint)
-        row.addLayout(text, 1)
-
-        self._cb_game = Switch()
-        self._cb_game.setToolTip(
-            tr("Widens the filter to the game port range (1024-65535).")
-        )
-        self._cb_game.toggled.connect(self._on_game_filter_toggled)
-        row.addWidget(self._cb_game, 0, Qt.AlignmentFlag.AlignTop)
-
-        return card
-
-    def _build_metrics_card(self) -> QWidget:
-        card = _card()
-        grid = QGridLayout(card)
-        grid.setContentsMargins(18, 14, 18, 14)
-        grid.setHorizontalSpacing(18)
-        grid.setVerticalSpacing(4)
-
-        def metric(column: int, caption: str) -> QLabel:
-            label = QLabel(caption)
-            label.setObjectName("metricLabel")
-            grid.addWidget(label, 0, column)
-            value = QLabel("—")
-            value.setObjectName("metricValue")
-            grid.addWidget(value, 1, column)
-            return value
-
-        self._latency_value = metric(0, tr("Latency"))
-        self._strategy_value = metric(1, tr("Strategy"))
-        self._strategy_value.setStyleSheet("font-size: 13px; font-weight: 600;")
-        # The reading is tweened rather than snapped, so a jump reads as the
-        # link changing rather than as the label glitching.
-        self._latency_tween = anim.ValueTween(
-            self._latency_value, self._paint_latency
-        )
-
-        tg = QLabel(tr("Telegram proxy"))
-        tg.setObjectName("metricLabel")
-        grid.addWidget(tg, 2, 0, 1, 2)
-        self._telegram_value = QLabel("—")
-        self._telegram_value.setObjectName("statusDetail")
-        self._telegram_value.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._telegram_value.setToolTip(
-            tr("Click to offer the proxy to Telegram again.")
-        )
-        self._telegram_value.mouseReleaseEvent = self._on_telegram_clicked
-        grid.addWidget(self._telegram_value, 3, 0, 1, 2)
-
-        return card
-
-    def _build_appearance_card(self) -> QWidget:
-        card = _card()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(8)
-
-        heading = QLabel(tr("Appearance"))
-        heading.setObjectName("sectionTitle")
-        layout.addWidget(heading)
-
-        def row(caption: str, widget: QWidget) -> None:
-            line = QHBoxLayout()
-            line.addWidget(QLabel(caption))
-            line.addWidget(widget, 1)
-            layout.addLayout(line)
-
-        self._combo_theme = NoScrollComboBox()
-        for label, value in (
-            (tr("Follow Windows"), theme.SYSTEM),
-            (tr("Dark"), theme.DARK),
-            (tr("Light"), theme.LIGHT),
-        ):
-            self._combo_theme.addItem(label, value)
-        self._combo_theme.currentIndexChanged.connect(self._on_theme_picked)
-        row(tr("Theme"), self._combo_theme)
-
-        self._swatch_accent = ColorSwatchPicker()
-        self._swatch_accent.accent_changed.connect(self._on_accent_picked)
-        # Obsidian Terminal deliberately uses luminance, not colour, for its
-        # state language. Keep the picker instance for old configurations, but
-        # make the locked visual system explicit in Settings.
-        self._swatch_accent.hide()
-        signal_tone = QLabel("MONOCHROME / HIGH CONTRAST")
-        signal_tone.setObjectName("hint")
-        row("Signal system", signal_tone)
-
-        self._combo_language = NoScrollComboBox()
-        self._combo_language.addItem(tr("Follow Windows"), i18n.SYSTEM)
-        for code, label in i18n.LANGUAGES.items():
-            self._combo_language.addItem(label, code)
-        self._combo_language.currentIndexChanged.connect(self._on_language_picked)
-        row(tr("Language"), self._combo_language)
-
-        return card
-
-    def _build_settings_tab(self) -> QWidget:
-        # The shared terminal canvas lives behind every configuration module.
-        page = SeascapePage()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(14)
-
-        startup = self._build_startup_card()
-        layout.addWidget(startup)
-
-        self._appearance_card = self._build_appearance_card()
-        engines = self._build_engines_card()
-        layout.addWidget(engines)
-        layout.addWidget(self._appearance_card)
-
-        # --- paths
-        paths = _card()
-        paths_layout = QVBoxLayout(paths)
-        paths_layout.setContentsMargins(16, 14, 16, 14)
-        paths_layout.setSpacing(4)
-        paths_heading = QLabel(tr("Files"))
-        paths_heading.setObjectName("sectionTitle")
-        paths_layout.addWidget(paths_heading)
-        for path in (CONFIG_PATH, LOG_PATH):
-            label = QLabel(str(path))
-            label.setObjectName("hint")
-            # A path has no spaces, so word wrap alone still reserves the full
-            # width and clips every settings card. Ignored lets it break anywhere.
-            label.setWordWrap(True)
-            label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            paths_layout.addWidget(label)
-        layout.addWidget(paths)
-
-        layout.addStretch(1)
-        anim.stagger_in([startup, engines, self._appearance_card, paths])
-
-        # The window is fixed-size, so the settings stack has to scroll.
-        scroll = QScrollArea()
-        scroll.setWidget(page)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        return scroll
-
-    def _build_startup_card(self) -> QWidget:
-        """How Unlock itself comes up, separate from what it turns on."""
-        card = _card()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(6)
-
-        heading = QLabel(tr("Startup"))
-        heading.setObjectName("sectionTitle")
-        layout.addWidget(heading)
-
-        blurb = QLabel(tr("When and how Unlock itself starts."))
-        blurb.setObjectName("hint")
-        blurb.setWordWrap(True)
-        layout.addWidget(blurb)
-
-        self._cb_start_min = Switch(tr("Start minimised to tray"))
-        self._cb_start_min.setToolTip(
-            tr("No window on launch — Unlock waits in the notification area.")
-        )
-        self._cb_start_min.toggled.connect(
-            lambda v: self._controller.config.set("start_minimized", v)
-        )
-        layout.addWidget(self._cb_start_min)
-
-        self._cb_launch_at_sign_in = Switch(tr("Launch with Windows"))
-        self._cb_launch_at_sign_in.setToolTip(
-            tr("Starts Unlock minimised to the notification area after you sign in.")
-        )
-        self._cb_launch_at_sign_in.toggled.connect(self._on_launch_at_sign_in_toggled)
-        layout.addWidget(self._cb_launch_at_sign_in)
-
-        self._cb_autoconnect = Switch(tr("Turn the bypass on automatically"))
-        self._cb_autoconnect.setToolTip(
-            tr("Presses the Home button for you as soon as Unlock is up.")
-        )
-        self._cb_autoconnect.toggled.connect(
-            lambda v: self._controller.config.set("auto_connect_on_launch", v)
-        )
-        layout.addWidget(self._cb_autoconnect)
-
-        self._cb_sounds = Switch(tr("Play a sound on connect and disconnect"))
-        self._cb_sounds.toggled.connect(self._on_sounds_toggled)
-        layout.addWidget(self._cb_sounds)
-
-        retest_row = QHBoxLayout()
-        retest_row.addWidget(QLabel(tr("Automatic re-test")))
-        self._combo_retest = NoScrollComboBox()
-        self._combo_retest.addItem(tr("Never"), 0)
-        for days in (7, 14, 30, 90):
-            self._combo_retest.addItem(tr("Every %d days") % days, days)
-        self._combo_retest.currentIndexChanged.connect(
-            lambda: self._controller.config.set(
-                "auto_retest_days", self._combo_retest.currentData()
-            )
-        )
-        retest_row.addWidget(self._combo_retest, 1)
-        layout.addLayout(retest_row)
-
-        return card
-
-    def _build_engines_card(self) -> QWidget:
-        """What the Home button actually starts."""
-        engines = _card()
-        engines_layout = QVBoxLayout(engines)
-        engines_layout.setContentsMargins(16, 14, 16, 14)
-        engines_layout.setSpacing(8)
-        engines_heading = QLabel(tr("What the Home button starts"))
-        engines_heading.setObjectName("sectionTitle")
-        engines_layout.addWidget(engines_heading)
-
-        blurb = QLabel(tr(
-            "Pick the engines the main button turns on. Both can run together; "
-            "with both off the button has nothing to do."
-        ))
-        blurb.setObjectName("hint")
-        blurb.setWordWrap(True)
-        engines_layout.addWidget(blurb)
-
-        self._cb_dpi = Switch(tr("DPI bypass for YouTube, Discord and HTTPS sites"))
-        self._cb_dpi.setToolTip(
-            tr("Runs winws with the chosen strategy. Needs Administrator rights.")
-        )
-        self._cb_dpi.toggled.connect(lambda v: self._controller.config.set("enable_dpi", v))
-        engines_layout.addWidget(self._cb_dpi)
-
-        self._cb_tg = Switch(tr("WebSocket bridge for Telegram"))
-        self._cb_tg.setToolTip(
-            tr("A local MTProto proxy that carries Telegram over WebSocket.")
-        )
-        self._cb_tg.toggled.connect(lambda v: self._controller.config.set("enable_telegram", v))
-        engines_layout.addWidget(self._cb_tg)
-
-        self._cb_tg_auto = Switch(tr("Hand the proxy to Telegram automatically"))
-        self._cb_tg_auto.setToolTip(
-            tr("Watches for Telegram and offers it the local proxy, including after a restart.")
-        )
-        self._cb_tg_auto.toggled.connect(
-            lambda v: self._controller.config.set("telegram_auto_proxy", v)
-        )
-        engines_layout.addWidget(self._cb_tg_auto)
-
-        self._cb_tg_ftls = Switch(tr("Disguise the Telegram proxy as HTTPS"))
-        self._cb_tg_ftls.setToolTip(
-            tr("Fake TLS: the handshake looks like an ordinary HTTPS session, and "
-               "anything else that connects to the port sees a real website.")
-        )
-        self._cb_tg_ftls.toggled.connect(self._on_fake_tls_toggled)
-        engines_layout.addWidget(self._cb_tg_ftls)
-
-        strategy_row = QHBoxLayout()
-        strategy_row.addWidget(QLabel(tr("DPI strategy")))
-        self._combo_strategy = NoScrollComboBox()
-        # Strategy names are long; let the popup be wide but keep the closed box
-        # narrow enough that it does not stretch the settings page.
-        self._combo_strategy.setSizeAdjustPolicy(
-            NoScrollComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
-        self._combo_strategy.setMinimumContentsLength(10)
-        self._combo_strategy.addItem(tr("Auto (benchmark result)"), None)
-        self._fill_strategy_combo()
-        self._combo_strategy.currentIndexChanged.connect(self._on_strategy_picked)
-        strategy_row.addWidget(self._combo_strategy, 1)
-        engines_layout.addLayout(strategy_row)
-
-        hint = QLabel(tr(
-            "Telegram is configured for you: while the bypass is on, the proxy is "
-            "offered to the client as soon as it is running — confirm the prompt once."
-        ))
-        hint.setObjectName("hint")
-        hint.setWordWrap(True)
-        engines_layout.addWidget(hint)
-        return engines
-
-    def _build_vpn_card(self) -> QWidget:
-        """VPN routing behaviour. The switch itself lives on the VPN tab."""
-        card = _card()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(8)
-
-        heading = QLabel(tr("VPN"))
-        heading.setObjectName("sectionTitle")
-        layout.addWidget(heading)
-
-        blurb = QLabel(tr(
-            "The VPN has its own button on the VPN tab and runs independently of "
-            "the bypass."
-        ))
-        blurb.setObjectName("hint")
-        blurb.setWordWrap(True)
-        layout.addWidget(blurb)
-
-        self._cb_vpn_tun = Switch(tr("Route every app through the VPN (TUN)"))
-        self._cb_vpn_tun.setToolTip(
-            tr("Creates a virtual network adapter. Needs Administrator rights.")
-        )
-        self._cb_vpn_tun.toggled.connect(self._on_vpn_tun_toggled)
-        layout.addWidget(self._cb_vpn_tun)
-
-        tun_explain = QLabel(tr(
-            "On: a virtual adapter carries all traffic, so apps that ignore the "
-            "Windows proxy — Telegram, games, anything on UDP — still go through "
-            "the VPN. This is how WireSock and similar clients work."
-        ))
-        tun_explain.setObjectName("hint")
-        tun_explain.setWordWrap(True)
-        layout.addWidget(tun_explain)
-
-        self._cb_vpn_proxy = Switch(tr("Point the Windows proxy at the VPN"))
-        self._cb_vpn_proxy.setToolTip(
-            tr("Ordinary apps follow the tunnel; the setting is restored on disconnect.")
-        )
-        self._cb_vpn_proxy.toggled.connect(
-            lambda v: self._controller.config.set("vpn_system_proxy", v)
-        )
-        layout.addWidget(self._cb_vpn_proxy)
-
-        explain = QLabel(tr(
-            "Used when TUN is off: Windows sends every app's traffic to the local "
-            "port the tunnel listens on, but apps with their own proxy setting "
-            "ignore it."
-        ))
-        explain.setObjectName("hint")
-        explain.setWordWrap(True)
-        layout.addWidget(explain)
-
-        return card
-
-    def _build_logs_tab(self) -> QWidget:
-        page = SeascapePage()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(10)
-
-        self._log_view = QPlainTextEdit()
-        self._log_view.setReadOnly(True)
-        self._log_view.setMaximumBlockCount(2000)
-        self._log_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._log_view.setPlainText("\n".join(logger.tail()))
-        layout.addWidget(self._log_view, 1)
-
-        buttons = QHBoxLayout()
-        clear = QPushButton(tr("Clear view"))
-        clear.clicked.connect(self._log_view.clear)
-        buttons.addWidget(clear)
-        buttons.addStretch(1)
-        layout.addLayout(buttons)
-
-        # Batch appends on a timer: a chatty engine would otherwise repaint the
-        # view per line and stutter the UI.
-        self._pending_logs: list[str] = []
-        logger.subscribe(self._pending_logs.append)
-        self._log_timer = QTimer(self)
-        self._log_timer.timeout.connect(self._flush_logs)
-        self._log_timer.start(400)
-
-        return page
+    # ── Tray ───────────────────────────────────────────────────────────────
 
     def _build_tray(self) -> None:
         self._tray = QSystemTrayIcon(icons.icon_idle(), self)
@@ -941,6 +392,10 @@ class MainWindow(QWidget):
         benchmark.triggered.connect(lambda: self.run_benchmark(first_run=False))
         menu.addAction(benchmark)
 
+        copy_link = QAction(tr("Copy proxy link"), menu)
+        copy_link.triggered.connect(self._home.copy_proxy_link)
+        menu.addAction(copy_link)
+
         profiles = menu.addMenu(tr("DPI profile"))
         current = self._controller.config.get("dpi_strategy")
         for strategy in load_strategies(self._controller.game_filter):
@@ -948,7 +403,8 @@ class MainWindow(QWidget):
             action.setCheckable(True)
             action.setChecked(strategy.name == current)
             action.triggered.connect(
-                lambda checked=False, name=strategy.name: self._controller.set_dpi_strategy(name)
+                lambda _checked=False, name=strategy.name:
+                    self._controller.set_dpi_strategy(name)
             )
             profiles.addAction(action)
 
@@ -968,6 +424,13 @@ class MainWindow(QWidget):
         self._build_tray_menu()
         self._apply_state(self._controller.state)
 
+    def _notify(self, title: str, body: str, *,
+                icon: QSystemTrayIcon.MessageIcon = QSystemTrayIcon.MessageIcon.Information
+                ) -> None:
+        """Balloon notification, for things that matter with the window hidden."""
+        if self._tray.supportsMessages():
+            self._tray.showMessage(title, body, icon, _NOTIFY_MS)
+
     # ------------------------------------------------------------- wiring
 
     def _wire_controller(self) -> None:
@@ -979,41 +442,11 @@ class MainWindow(QWidget):
         # Not tied to the dialog closing: a re-test rewrites dpi_strategy, and
         # the Settings combo has to follow even if the dialog is still open.
         c.benchmark_done.connect(self._on_benchmark_recorded)
-    @pyqtSlot(object)
-    def _on_benchmark_recorded(self, _report: object) -> None:
-        self._load_settings_into_ui()
-        self._refresh_metrics()
-
-    def _load_settings_into_ui(self) -> None:
-        cfg = self._controller.config
-        for widget, value in (
-            (self._cb_start_min, cfg.get("start_minimized", False)),
-            (self._cb_launch_at_sign_in, cfg.get("launch_at_sign_in", False)),
-            (self._cb_autoconnect, cfg.get("auto_connect_on_launch", False)),
-            (self._cb_dpi, cfg.get("enable_dpi", True)),
-            (self._cb_tg, cfg.get("enable_telegram", True)),
-            (self._cb_tg_auto, cfg.get("telegram_auto_proxy", True)),
-            (self._cb_tg_ftls, cfg.get("telegram_fake_tls", True)),
-            (self._cb_game, cfg.get("game_filter", False)),
-            (self._cb_sounds, cfg.get("sounds", True)),
-        ):
-            widget.blockSignals(True)
-            widget.setChecked(bool(value))
-            widget.blockSignals(False)
-
-        self._select_combo(self._combo_retest, int(cfg.get("auto_retest_days") or 0))
-        self._select_combo(self._combo_theme, cfg.get("theme", theme.SYSTEM))
-        self._swatch_accent.set_accent(cfg.get("accent", theme.DEFAULT_ACCENT))
-        self._select_combo(self._combo_language, cfg.get("language", i18n.SYSTEM))
-        self._select_combo(self._combo_strategy, cfg.get("dpi_strategy"))
-        self._refresh_game_card()
-
-    @staticmethod
-    def _select_combo(combo: QComboBox, value) -> None:
-        index = combo.findData(value)
-        combo.blockSignals(True)
-        combo.setCurrentIndex(index if index >= 0 else 0)
-        combo.blockSignals(False)
+        c.engine_crashed.connect(self._on_engine_crashed)
+        c.engine_restored.connect(self._on_engine_restored)
+        c.engine_lost.connect(self._on_engine_lost)
+        c.selftest_done.connect(self._on_selftest_done)
+        c.update_available.connect(self._on_update_available)
 
     # ------------------------------------------------------------- actions
 
@@ -1022,6 +455,7 @@ class MainWindow(QWidget):
             self._show_benchmark_dialog()
             return
         dialog = BenchmarkDialog(self._controller, self, first_run=first_run)
+        ripple.install_all(dialog)
         self._benchmark_dialog = dialog
         dialog.finished.connect(self._on_benchmark_dialog_closed)
         self._show_benchmark_dialog()
@@ -1030,53 +464,23 @@ class MainWindow(QWidget):
         dialog = self._benchmark_dialog
         if dialog is None:
             return
-        if dialog.isVisible():
-            dialog.raise_()
-            dialog.activateWindow()
-        else:
+        if not dialog.isVisible():
             _open_softly(dialog)
-            dialog.raise_()
-            dialog.activateWindow()
+        dialog.raise_()
+        dialog.activateWindow()
 
     @pyqtSlot(int)
     def _on_benchmark_dialog_closed(self, _result: int) -> None:
         dialog, self._benchmark_dialog = self._benchmark_dialog, None
         if dialog is not None:
             dialog.deleteLater()
-        self._load_settings_into_ui()
-        self._refresh_metrics()
+        self._settings.load_from_config()
+        self._home.refresh_metrics()
 
-    def _fill_strategy_combo(self) -> None:
-        """Expose the unmodified presets shipped with the zapret pack."""
-        for strategy in load_strategies():
-            self._combo_strategy.addItem(strategy.name, strategy.name)
-
-    def _on_fake_tls_toggled(self, enabled: bool) -> None:
-        in_force = self._controller.set_fake_tls(enabled)
-        if in_force != enabled:
-            # The bridge refused the switch and kept the old handshake, so the
-            # switch has to go back or it would misreport what is running.
-            self._cb_tg_ftls.blockSignals(True)
-            self._cb_tg_ftls.setChecked(in_force)
-            self._cb_tg_ftls.blockSignals(False)
-        self._refresh_metrics()
-
-    def _on_game_filter_toggled(self, enabled: bool) -> None:
-        needs_restart = self._controller.set_game_filter(enabled)
-        self._refresh_game_card()
-        if needs_restart:
-            # The port range is part of the argument vector winws was launched
-            # with, so the change only lands on a fresh process.
-            self._controller.restart_dpi()
-
-    def _refresh_game_card(self) -> None:
-        enabled = self._controller.game_filter
-        self._game_glyph.set_active(enabled)
-        anim.crossfade_text(self._game_hint, tr(
-            "Voice chat, matchmaking and game traffic go through the bypass too."
-            if enabled else
-            "Off — only web ports are filtered. Turn on if games or voice chat lag."
-        ))
+    @pyqtSlot(object)
+    def _on_benchmark_recorded(self, _report: object) -> None:
+        self._settings.load_from_config()
+        self._home.refresh_metrics()
 
     def _on_power_clicked(self) -> None:
         # While a hidden test is running the button is the way back to it, since
@@ -1084,10 +488,14 @@ class MainWindow(QWidget):
         if self._benchmark_dialog is not None:
             self._show_benchmark_dialog()
             return
-        # The planet acknowledges the intent now; engine startup may involve
-        # drivers and files and must never stall the interaction animation.
-        self._power.play_toggle_transition(not self._controller.is_active)
+        # The orb acknowledges the intent now; engine startup may involve drivers
+        # and files and must never stall the interaction animation.
+        self._home.play_toggle_transition(not self._controller.is_active)
         self._controller.toggle()
+
+    def _on_language_changed(self) -> None:
+        self._rebuild_tabs()
+        self._rebuild_tray_labels()
 
     def quit_app(self) -> None:
         self._quitting = True
@@ -1098,82 +506,35 @@ class MainWindow(QWidget):
         if app is not None:
             app.quit()
 
-    # ------------------------------------------------------------- slots
+    # --------------------------------------------------------------- slots
 
     @pyqtSlot(object)
     def _apply_state(self, state: State) -> None:
-        headline, detail = (tr(t) for t in _STATE_TEXT[state])
-        if state is State.BENCHMARKING and self._benchmark_dialog is not None:
-            detail = tr("Press the button to reopen the test window")
-        anim.crossfade_text(self._headline, headline)
-        anim.crossfade_text(self._detail, detail)
-        self._power.set_state(state)
-
-        busy = state in (State.CONNECTING, State.DISCONNECTING, State.BENCHMARKING)
-        self._retest.setEnabled(not busy)
-        # Toggling mid-restart would start a second worker against the same winws,
-        # so the switch is frozen for as long as one is in flight.
-        self._cb_game.setEnabled(not busy)
-        self._act_toggle.setText(tr("Disconnect") if state is State.ACTIVE else tr("Connect"))
+        busy = state in BUSY_STATES
+        self._home.apply_state(
+            state, benchmark_open=self._benchmark_dialog is not None
+        )
+        # Toggling mid-restart would start a second worker against the same
+        # winws, so everything that relaunches it is frozen while one is running.
+        self._settings.set_busy(busy)
+        self._act_toggle.setText(
+            tr("Disconnect") if state is State.ACTIVE else tr("Connect")
+        )
         self._act_toggle.setEnabled(not busy)
 
-        tray_icon = {
+        self._tray.setIcon({
             State.ACTIVE: icons.icon_active(),
             State.ERROR: icons.icon_error(),
-        }.get(state, icons.icon_busy() if busy else icons.icon_idle())
-        self._tray.setIcon(tray_icon)
-        self._tray.setToolTip(f"{APP_NAME} — {headline}")
-
-        self._refresh_metrics()
-
-    def _on_telegram_clicked(self, event) -> None:
-        if event.button() is not Qt.MouseButton.LeftButton:
-            return
-        if not self._controller.telegram.running:
-            self._toast(tr("Start the bypass first — the bridge is not running."))
-            return
-        if self._controller.offer_telegram_proxy():
-            self._toast(tr("Offered the proxy to Telegram."))
-
-    def _toast(self, message: str) -> None:
-        anim.crossfade_text(self._detail, message)
-
-    def _refresh_metrics(self) -> None:
-        # Falls back to the configured name so a re-test is visible here even
-        # while the engine is stopped.
-        running = self._controller.dpi.strategy
-        name = running.name if running else self._controller.config.get("dpi_strategy")
-        anim.crossfade_text(self._strategy_value, name or "—")
-
-        if self._controller.telegram.running:
-            telegram = f"MTProto 127.0.0.1:{self._controller.telegram.port}"
-            if self._controller.telegram.fake_tls_domain:
-                telegram += tr(" · disguised as HTTPS")
-        else:
-            telegram = tr("Not running")
-        anim.crossfade_text(self._telegram_value, telegram)
+        }.get(state, icons.icon_busy() if busy else icons.icon_idle()))
+        self._tray.setToolTip(f"{APP_NAME} — {state_headline(state)}")
 
     @pyqtSlot(str)
     def _on_status_message(self, message: str) -> None:
-        # tr() falls back to its argument, so a status built with an f-string
-        # still shows in English rather than going missing.
-        anim.crossfade_text(self._detail, tr(message))
-        self._refresh_metrics()
+        self._home.set_status(message)
 
     @pyqtSlot(float)
     def _on_latency(self, ms: float) -> None:
-        if ms < 0:
-            self._latency_tween.jump(0.0)
-            self._latency_value.setText("—")
-            self._paint_latency(0.0)
-            return
-        self._latency_tween.to(ms)
-
-    def _paint_latency(self, ms: float) -> None:
-        text = f"{ms:.0f} ms" if ms > 0 else None
-        self._latency_value.setText(text or "—")
-        self._ping_value.setText(text or "—")
-        self._power.set_badge(text)
+        self._home.set_latency(ms)
 
     @pyqtSlot(str)
     def _on_error(self, message: str) -> None:
@@ -1181,48 +542,66 @@ class MainWindow(QWidget):
         # sit in the tray, and a dialog stealing focus from whatever the user is
         # doing is worse than a line they can read when they next look.
         log.error("UI error: %s", message)
-        anim.crossfade_text(self._detail, tr(message))
+        self._home.set_status(message)
 
-    def _on_strategy_picked(self, _index: int) -> None:
-        selected = self._combo_strategy.currentData()
-        if not self._controller.set_dpi_strategy(selected):
-            self._select_combo(self._combo_strategy, self._controller.config.get("dpi_strategy"))
+    # ── Engine supervision, self-test, updates ─────────────────────────────
+    #
+    # The controller already puts every one of these on the status line. What
+    # the tray adds is reach: the interesting cases (a dead engine, a service
+    # that did not come back, a new release) all happen while Unlock is
+    # minimised, where the Home page is the one place nobody is looking.
 
-    def _on_launch_at_sign_in_toggled(self, enabled: bool) -> None:
-        try:
-            autostart.set_enabled(enabled)
-        except OSError as exc:
-            self._cb_launch_at_sign_in.blockSignals(True)
-            self._cb_launch_at_sign_in.setChecked(not enabled)
-            self._cb_launch_at_sign_in.blockSignals(False)
-            self._controller.error.emit(str(exc))
+    @pyqtSlot(str)
+    def _on_engine_crashed(self, label: str) -> None:
+        self._notify(
+            tr("%s stopped unexpectedly") % label,
+            tr("Restarting it now."),
+            icon=QSystemTrayIcon.MessageIcon.Warning,
+        )
+
+    @pyqtSlot(str)
+    def _on_engine_restored(self, label: str) -> None:
+        # Only worth a balloon because the crash raised one: a recovery notice
+        # on its own would be a notification about nothing having gone wrong.
+        self._notify(tr("%s is running again") % label, tr("Protection restored."))
+        self._home.refresh_metrics()
+
+    @pyqtSlot(str)
+    def _on_engine_lost(self, label: str) -> None:
+        self._notify(
+            tr("%s could not be restarted") % label,
+            tr("Turn the bypass off and on again, or see the Logs tab."),
+            icon=QSystemTrayIcon.MessageIcon.Critical,
+        )
+        self._home.refresh_metrics()
+
+    @pyqtSlot(object)
+    def _on_selftest_done(self, report: object) -> None:
+        # Silent on success. The status line already names the services that
+        # answered, and a balloon for the expected outcome trains people to
+        # dismiss the ones that matter without reading them.
+        if getattr(report, "ok", True):
             return
-        self._controller.config.set("launch_at_sign_in", enabled)
+        self._notify(
+            tr("Some services are still unreachable"),
+            tr("Not answering: %s") % report.summary(),
+            icon=QSystemTrayIcon.MessageIcon.Warning,
+        )
 
-    def _on_theme_picked(self, _index: int) -> None:
-        self._controller.config.set("theme", self._combo_theme.currentData())
-        self._restyle()
+    @pyqtSlot(object)
+    def _on_update_available(self, info: object) -> None:
+        self._settings.show_update(info)
+        self._notify(
+            tr("Unlock %s is available") % info.latest,
+            tr("Open Settings for the release page."),
+        )
 
-    def _on_accent_picked(self, value: str) -> None:
-        self._controller.config.set("accent", value)
-        self._restyle()
-
-    def _on_language_picked(self, _index: int) -> None:
-        self._controller.config.set("language", self._combo_language.currentData())
-        i18n.set_language(self._combo_language.currentData())
-        self._rebuild_tabs()
-        self._rebuild_tray_labels()
-
-    def _on_sounds_toggled(self, enabled: bool) -> None:
-        self._controller.config.set("sounds", enabled)
-        sounds.set_enabled(enabled)
-        if enabled:
-            sounds.connected()
+    # --------------------------------------------------------------- restyle
 
     def _restyle(self) -> None:
         """Re-derive the palette and repaint everything that caches a colour."""
         cfg = self._controller.config
-        theme.apply(cfg.get("theme", theme.SYSTEM), cfg.get("accent", theme.DEFAULT_ACCENT))
+        theme.apply(cfg.text("theme"), cfg.text("accent"))
 
         app = QApplication.instance()
         if app is not None:
@@ -1231,18 +610,20 @@ class MainWindow(QWidget):
         self.setStyleSheet(theme.STYLESHEET)
         self.setWindowIcon(icons.app_icon())
 
-        # Tray menu also caches the stylesheet — rebuild it so the accent lands there too.
+        # The tray menu caches the stylesheet too, so it has to be rebuilt for
+        # the new tonality to reach it.
         self._build_tray_menu()
 
-        # Tray icons and the latency label paint from palette constants directly.
+        # Tray icons paint from palette constants directly, so the state has to
+        # be re-applied rather than merely repainted.
         self._apply_state(self._controller.state)
         self._content_panel.restyle()
-        self._sites_tab.restyle()
-        self._power.restyle()
-        self._game_glyph.update()
-        # Nav buttons paint icons using theme colours — force a repaint.
-        for btn in self._nav_buttons:
-            btn.update()
+        self._sites.restyle()
+        self._home.restyle()
+        for button in self._nav_buttons:
+            button.update()
+
+    # ---------------------------------------------------------------- window
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -1298,29 +679,8 @@ class MainWindow(QWidget):
         fade.setEasingCurve(QEasingCurve.Type.OutCubic)
         fade.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
-    def _flush_logs(self) -> None:
-        if not self._pending_logs:
-            return
-        chunk, self._pending_logs[:] = "\n".join(self._pending_logs), []
-        self._log_view.appendPlainText(chunk)
-
-    # ------------------------------------------------------------- window
-
-    def _toggle_maximised(self) -> None:
-        if self.isMaximized():
-            self.showNormal()
-        else:
-            self.showMaximized()
-        # A maximised window has no frame to grab, and the band would only show
-        # as a gap between the app and the screen edge.
-        margin = 0 if self.isMaximized() else _RESIZE_MARGIN
-        self._outer.setContentsMargins(*([margin] * 4))
-        self._layout_grips()
-        pass  # maximize button removed
-
     def _layout_grips(self) -> None:
         """Place the resize strips along the frame and raise them above the UI."""
-        maximised = self.isMaximized()
         band, corner = _RESIZE_MARGIN, _CORNER_GRIP
         width, height = self.width(), self.height()
         # Corners come after the edges and are wider, so a drag near a corner
@@ -1336,7 +696,6 @@ class MainWindow(QWidget):
             _BOTTOM | _RIGHT: (width - corner, height - corner, corner, corner),
         }
         for grip in self._grips:
-            grip.setVisible(not maximised)
             grip.setGeometry(*boxes[grip.edges])
             grip.raise_()
 
@@ -1348,18 +707,16 @@ class MainWindow(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         position = event.position().toPoint()
-        # Drag zone: entire top strip of the window — child buttons consume
-        # their own clicks so startSystemMove only fires on empty space.
-        in_header = position.y() <= _RESIZE_MARGIN + _HEADER_H
-        if in_header and not self.isMaximized():
+        # Drag zone: the whole top strip of the window. Child buttons consume
+        # their own clicks, so startSystemMove only fires on empty space.
+        if position.y() <= _RESIZE_MARGIN + _HEADER_H:
             handle = self.windowHandle()
             if handle is not None:
                 handle.startSystemMove()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._quitting:
-            self._log_timer.stop()
-            logger.unsubscribe(self._pending_logs.append)
+            self._logs.close_page()
             self._tray.hide()
             self._controller.shutdown()
             event.accept()
@@ -1367,13 +724,3 @@ class MainWindow(QWidget):
         # Closing hides to tray; Quit in the tray menu is the real exit.
         event.ignore()
         self.hide()
-
-
-
-
-
-
-
-
-
-

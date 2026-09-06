@@ -1,4 +1,9 @@
-"""JSON config persistence with schema-tolerant merge."""
+"""JSON config persistence with schema-tolerant merge.
+
+Reads never pass a fallback: :data:`~unlock.constants.DEFAULT_CONFIG` is the
+single source of truth for what a key means when it is absent, so a default can
+never disagree with itself between two call sites.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +17,13 @@ from .logger import get_logger
 
 from .secure_storage import SecureStorageError, protect, unprotect
 log = get_logger("config")
+
+
+class _Unset:
+    """Sentinel: ``None`` is a legitimate value for several keys."""
+
+
+_UNSET = _Unset()
 
 
 class Config:
@@ -58,8 +70,36 @@ class Config:
         tmp.replace(CONFIG_PATH)  # atomic: never leave a half-written config
         log.info("Config saved")
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
+    def get(self, key: str, default: Any = _UNSET) -> Any:
+        """Value for ``key``, falling back to the shipped default.
+
+        Callers should not pass ``default``; it exists only for keys that are
+        deliberately absent from ``DEFAULT_CONFIG``.
+        """
+        if key in self._data:
+            return self._data[key]
+        if not isinstance(default, _Unset):
+            return default
+        return deepcopy(DEFAULT_CONFIG.get(key))
+
+    def flag(self, key: str) -> bool:
+        """Boolean read that tolerates a config hand-edited to 0/1/"true"."""
+        value = self.get(key)
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+
+    def number(self, key: str) -> int:
+        """Integer read that survives a malformed value instead of raising."""
+        try:
+            return int(self.get(key) or 0)
+        except (TypeError, ValueError):
+            fallback = DEFAULT_CONFIG.get(key)
+            return int(fallback) if isinstance(fallback, (int, float)) else 0
+
+    def text(self, key: str) -> str:
+        value = self.get(key)
+        return value if isinstance(value, str) else ""
 
     def set(self, key: str, value: Any, *, save: bool = True) -> None:
         self._data[key] = value

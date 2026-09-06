@@ -1,42 +1,46 @@
 """Shared Obsidian Terminal canvas for the working pages.
 
-The former sea was an atmospheric brand layer.  The new product language is a
-quiet diagnostic instrument: a barely visible coordinate grid and no ambient
-animation competing with settings, rules or telemetry.
+A barely visible coordinate grid and no ambient animation, so nothing competes
+with settings, rules or telemetry for attention.
 """
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
 from . import theme
 
+# Grid pitch in device-independent pixels, and the alpha the hairlines get in
+# each mode. Light mode needs a touch more to stay visible on a pale surface.
+_GRID_STEP = 24
+_GRID_ALPHA_DARK = 42
+_GRID_ALPHA_LIGHT = 54
+
+
+def _grid_pen() -> QPen:
+    line = theme.qcolor(theme.CARD_BORDER)
+    line.setAlpha(_GRID_ALPHA_DARK if theme.current_mode() == theme.DARK else _GRID_ALPHA_LIGHT)
+    return QPen(line, 1.0)
+
+
+def _draw_grid(painter: QPainter, width: int, height: int) -> None:
+    painter.setPen(_grid_pen())
+    for x in range(0, width + 1, _GRID_STEP):
+        painter.drawLine(x, 0, x, height)
+    for y in range(0, height + 1, _GRID_STEP):
+        painter.drawLine(0, y, width, y)
+
 
 def paint_terminal_canvas(widget: QWidget) -> None:
+    """Fill ``widget`` with the flat background plus the coordinate grid."""
     rect = widget.rect()
     if rect.width() <= 0 or rect.height() <= 0:
         return
     painter = QPainter(widget)
     painter.fillRect(rect, theme.qcolor(theme.BG))
-    line = theme.qcolor(theme.CARD_BORDER)
-    line.setAlpha(42 if theme.current_mode() == theme.DARK else 54)
-    painter.setPen(QPen(line, 1.0))
-    step = 24
-    for x in range(0, rect.width() + 1, step):
-        painter.drawLine(x, 0, x, rect.height())
-    for y in range(0, rect.height() + 1, step):
-        painter.drawLine(0, y, rect.width(), y)
+    _draw_grid(painter, rect.width(), rect.height())
     painter.end()
-
-
-def paint_seascape(widget: QWidget, phase: float = 0.0) -> None:
-    """Compatibility paint hook retained for dialogs.
-
-    ``phase`` is intentionally ignored: terminal surfaces are still, allowing
-    the actual progress and network signals to own motion.
-    """
-    paint_terminal_canvas(widget)
 
 
 def content_panel_path(rect, radius: float) -> QPainterPath:
@@ -68,23 +72,13 @@ def paint_content_panel(widget: QWidget, radius: float = 15.0) -> None:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.fillPath(path, theme.qcolor(theme.BG))
     painter.setClipPath(path)
-    line = theme.qcolor(theme.CARD_BORDER)
-    line.setAlpha(42 if theme.current_mode() == theme.DARK else 54)
-    painter.setPen(QPen(line, 1.0))
-    step = 24
-    for x in range(0, rect.width() + 1, step):
-        painter.drawLine(x, 0, x, rect.height())
-    for y in range(0, rect.height() + 1, step):
-        painter.drawLine(0, y, rect.width(), y)
+    _draw_grid(painter, rect.width(), rect.height())
     painter.end()
 
 
-class SeascapePage(QWidget):
+class TerminalPage(QWidget):
     """Transparent page: the background is painted once by the content panel
     behind it, so scrolled pages can never cover the window's rounded corners."""
 
     def restyle(self) -> None:
         self.update()
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)

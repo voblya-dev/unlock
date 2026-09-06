@@ -30,7 +30,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 from unlock import config as config_module
-from unlock.controller import Controller, State
+from unlock.controllers import Controller, State
 from unlock.telegram_proxy import TelegramProxyError
 from unlock.ui.main_window import MainWindow
 

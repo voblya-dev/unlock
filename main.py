@@ -19,11 +19,11 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from unlock import logger
 from unlock.config import Config
 from unlock.constants import APP_NAME
-from unlock.controller import Controller
+from unlock.controllers import Controller
 from unlock.dpi_engine import is_admin
 from unlock.ui import i18n, icons, theme
 from unlock.ui.main_window import MainWindow
-from unlock.zapret_update import bootstrap as update_zapret
+from unlock.zapret_update import ensure_local_pack
 
 _IPC_KEY = f"{APP_NAME}-single-instance"
 
@@ -114,8 +114,13 @@ def main() -> int:
 
     logger.setup_logging(logging.INFO)
     log = logger.get_logger("main")
-    update = update_zapret()
-    log.info("Zapret startup source: %s %s", update.source, update.version)
+    # Local filesystem work only, and it has to finish before the window appears:
+    # without a pack winws cannot start at all, so the UI would come up offering
+    # protection it could not deliver. Fetching a newer pack from GitHub is the
+    # slow half and happens on a worker thread once the window is up — startup
+    # used to block on a release lookup plus a download of up to a few hundred
+    # megabytes before QApplication even existed.
+    ensure_local_pack()
 
     # Qt fatal messages (qFatal / qCritical) never reach stdout in frozen GUI
     # builds; route them into the log so a crash is diagnosable.
@@ -159,9 +164,9 @@ def main() -> int:
     # Theme and language must be resolved before any widget is built: labels are
     # read at construction time and the stylesheet is applied app-wide.
     config = Config()
-    i18n.set_language(config.get("language", i18n.SYSTEM))
-    mode = theme.apply(config.get("theme", theme.SYSTEM), config.get("accent", theme.DEFAULT_ACCENT))
-    log.info("Theme: %s (%s), language: %s", mode, config.get("accent"), i18n.current())
+    i18n.set_language(config.text("language"))
+    mode = theme.apply(config.text("theme"), config.text("accent"))
+    log.info("Theme: %s (%s), language: %s", mode, config.text("accent"), i18n.current())
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -184,14 +189,17 @@ def main() -> int:
         lambda: (server.nextPendingConnection(), window._restore_window())
     )
 
-    if minimized or controller.config.get("start_minimized"):
+    if minimized or controller.config.flag("start_minimized"):
         log.info("Starting minimised to tray")
     else:
         window.show()
 
     def bootstrap() -> None:
-        # Zapret and the Telegram bridge are the only services started by
-        # Unlock 2.  There is no VPN adapter or background VPN lifecycle.
+        # Order matters. The pack update is started first so that connect() can
+        # see it in flight and wait behind it: the zapret directory cannot be
+        # swapped while winws is running out of it. The wait is capped, so a
+        # stalled download delays protection by seconds, not indefinitely.
+        controller.start_background_tasks()
         controller.connect()
 
     QTimer.singleShot(400, bootstrap)  # let the window paint first

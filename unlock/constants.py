@@ -165,6 +165,37 @@ PROBE_PROTOCOLS = ("http1.1", "tls1.2", "tls1.3")
 PROBE_PARALLEL = 8
 
 PROBE_TIMEOUT = 3.0          # seconds per probe; blocked requests never return
+
+# --- post-connect self-test
+# One representative endpoint per service the user actually cares about. Kept
+# short on purpose: this runs on every connect, so it must not feel like the
+# benchmark. Discord and YouTube come from PROBE_TARGETS; Telegram is checked
+# through the local bridge instead of over the network.
+SELFTEST_SERVICES = {
+    "Discord": "https://discord.com",
+    "YouTube": "https://www.youtube.com",
+}
+SELFTEST_TIMEOUT = 4.0
+# Give winws a moment to bind the filter before judging whether a site loads.
+SELFTEST_DELAY = 1.5
+
+# --- crash watchdog
+# How often the controller checks that winws and the Telegram bridge are still
+# alive, and how many times it will restart one before giving up and reporting.
+WATCHDOG_INTERVAL_MS = 4000
+WATCHDOG_MAX_RESTARTS = 3
+
+# --- latency monitor
+# Real TCP handshake RTT against PING_TARGETS, sampled on a worker thread.
+LATENCY_INTERVAL = 2.5
+LATENCY_TIMEOUT = 1.5
+
+# --- application self-update
+# Only the tag is fetched and compared; Unlock never downloads an executable by
+# itself. The user is pointed at the release page.
+RELEASES_API_URL = "https://api.github.com/repos/voblya-dev/unlock/releases/latest"
+RELEASES_PAGE_URL = "https://github.com/voblya-dev/unlock/releases/latest"
+UPDATE_CHECK_INTERVAL_H = 24
 # winws either binds the filter almost at once or dies on a bad argument vector,
 # so start() polls for that instead of sleeping out a fixed grace period.
 STRATEGY_SETTLE_TIMEOUT = 1.2
@@ -205,6 +236,17 @@ DEFAULT_CONFIG: dict = {
     "accent": "mono",            # key from ui.theme.ACCENTS (white/black)
     "language": "system",        # system | en | ru
     "sounds": True,              # chime on connect / disconnect
+    # --- reliability
+    # Restart winws / the Telegram bridge if it dies while the state says ACTIVE.
+    "crash_recovery": True,
+    # Probe Discord and YouTube once, right after the engines report ready.
+    "connectivity_check": True,
+    # Compare APP_VERSION against the latest GitHub tag. Never downloads.
+    "app_update_check": True,
+    "last_app_update_check_utc": None,
+    # --- protection uptime, accumulated across sessions
+    "protection_seconds": 0,
+    "first_protected_utc": None,
     # --- custom VPN
     "vpn_profiles": [],          # list of vpn.Profile.as_dict()
     "vpn_active": None,          # id of the profile to bring up with the tunnel
