@@ -39,7 +39,7 @@ from ..site_lists import (
     SiteRule,
     SiteRuleType,
 )
-from . import anim, theme
+from . import theme
 from .i18n import tr
 from .canvas import TerminalPage
 from .widgets import ElidedLabel, Switch
@@ -373,7 +373,6 @@ class SitesTab(TerminalPage):
         layout.addStretch(1)
         controller.status_message.connect(self._show_notice)
         self.reload()
-        anim.stagger_in([self._list_card, self._hosts_card])
         if self._manager.ai_sites_enabled:
             self._run_action("ai_sync")
 
@@ -566,7 +565,6 @@ class SitesTab(TerminalPage):
         self._hosts_switch.setChecked(self._manager.hosts_enabled)
         self._hosts_switch.blockSignals(False)
         self._reload_host_mappings()
-        anim.stagger_in(self._cards)
 
     def _on_selected(self, value: str, selected: bool) -> None:
         if selected:

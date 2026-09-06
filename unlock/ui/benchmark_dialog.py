@@ -129,7 +129,7 @@ class BenchmarkDialog(QDialog):
 
     def _on_progress(self, percent: int, message: str) -> None:
         self._slide_to(percent)
-        anim.crossfade_text(self._step, message)
+        self._step.setText(message)
         self._log.appendPlainText(f"[{percent:3d}%] {message}")
 
     def _slide_to(self, percent: int) -> None:

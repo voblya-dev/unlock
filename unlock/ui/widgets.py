@@ -242,138 +242,23 @@ class ClippedPanel(QWidget):
 
 
 class ClippedStackedWidget(QStackedWidget):
-    """Page host with a smooth opacity cross-fade between pages.
+    """Page host. Switches between pages instantly.
 
     No mask, despite the name: rounding is the stylesheet's job on
     ``#contentArea``, and ``setMask`` in a frozen build broke child painting on
     some Windows machines. The name and the two unused arguments are kept so the
     window's construction call did not have to change.
-
-    Transition
-    ----------
-    Switching pages runs two opacity tweens:
-
-    * The **outgoing** page fades from 1 → 0 with an ``InCubic`` curve
-      (starts fast, decelerates — so it disappears quickly and cleanly).
-    * The **incoming** page fades from 0 → 1 with an ``OutCubic`` curve
-      (pops in fast, settles gently — feels instant but never jarring).
-
-    Both tweens overlap in the middle so the total perceived duration is very
-    short while still reading as a deliberate motion.
-
-    Rapid-switch safety
-    -------------------
-    Any click that arrives while a fade is running immediately aborts the
-    current animation (the screen is snapped to a clean state) and starts the
-    new one from scratch.  No click is ever dropped.
     """
-
-    _FADE_OUT = 160   # ms — outgoing page fades to black
-    _FADE_IN  = 200   # ms — incoming page reveals itself
 
     def __init__(self, parent: QWidget | None = None, radius: float = 17.0,
                  corners: int = 2 | 4) -> None:
         super().__init__(parent)
         self._radius = radius
         self._corners = corners
-        # Running animation; None when idle.
-        self._fade: QParallelAnimationGroup | None = None
-
-    # ----------------------------------------------------------------- public
 
     def slide_to(self, index: int) -> None:
-        """Cross-fade to *index*.  Safe to call while a transition is running."""
-        incoming = self.widget(index)
-        if incoming is None or incoming is self.currentWidget():
-            return
-
-        # Abort any running fade cleanly before starting the next one.
-        if self._fade is not None:
-            self._cancel_fade()
-
-        self._start_fade(index)
-
-    # ---------------------------------------------------------------- private
-
-    def _cancel_fade(self) -> None:
-        """Interrupt the running group and restore every page to a clean state."""
-        group = self._fade
-        self._fade = None
-        if group is not None:
-            try:
-                group.finished.disconnect()
-            except RuntimeError:
-                pass
-            group.stop()
-        # Strip any leftover opacity effects so pages paint at full opacity.
-        for i in range(self.count()):
-            page = self.widget(i)
-            if page is not None:
-                page.setGraphicsEffect(None)
-
-    def _start_fade(self, index: int) -> None:
-        """Build and launch the parallel cross-fade."""
-        from PyQt6.QtCore import QSequentialAnimationGroup, QPauseAnimation
-        from PyQt6.QtWidgets import QGraphicsOpacityEffect
-
-        outgoing = self.currentWidget()
-        incoming = self.widget(index)
-        if incoming is None:
-            self.setCurrentIndex(index)
-            return
-
-        # Make sure incoming has the right geometry before it becomes visible.
-        incoming.setGeometry(outgoing.geometry() if outgoing else self.rect())
-        incoming.setGraphicsEffect(None)
-
-        # ── opacity effects ───────────────────────────────────────────────
-        out_fx = QGraphicsOpacityEffect(outgoing)
-        out_fx.setOpacity(1.0)
-        if outgoing:
-            outgoing.setGraphicsEffect(out_fx)
-
-        in_fx = QGraphicsOpacityEffect(incoming)
-        in_fx.setOpacity(0.0)
-        incoming.setGraphicsEffect(in_fx)
-
-        incoming.show()
-        incoming.raise_()
-
-        # ── tweens ───────────────────────────────────────────────────────
-        group = QParallelAnimationGroup(self)
-
-        # Outgoing: fast fade-out (InCubic = slow start → quick exit)
-        if outgoing:
-            out_anim = QPropertyAnimation(out_fx, b"opacity", group)
-            out_anim.setDuration(self._FADE_OUT)
-            out_anim.setStartValue(1.0)
-            out_anim.setEndValue(0.0)
-            out_anim.setEasingCurve(QEasingCurve.Type.InCubic)
-            group.addAnimation(out_anim)
-
-        # Incoming: slight delay then reveal (OutCubic = fast start → smooth settle)
-        in_seq = QSequentialAnimationGroup(group)
-        # Small overlap: incoming starts halfway through the outgoing fade.
-        in_seq.addAnimation(QPauseAnimation(self._FADE_OUT // 2, in_seq))
-        in_anim = QPropertyAnimation(in_fx, b"opacity", in_seq)
-        in_anim.setDuration(self._FADE_IN)
-        in_anim.setStartValue(0.0)
-        in_anim.setEndValue(1.0)
-        in_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        in_seq.addAnimation(in_anim)
-        group.addAnimation(in_seq)
-
-        # ── landing ───────────────────────────────────────────────────────
-        def landed() -> None:
-            self._fade = None
-            if outgoing:
-                outgoing.setGraphicsEffect(None)
-            incoming.setGraphicsEffect(None)
-            self.setCurrentIndex(index)
-
-        group.finished.connect(landed)
-        self._fade = group
-        group.start(QParallelAnimationGroup.DeletionPolicy.DeleteWhenStopped)
+        """Switch to *index* instantly."""
+        self.setCurrentIndex(index)
 
 
 class NoScrollComboBox(QComboBox):

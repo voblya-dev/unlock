@@ -46,14 +46,8 @@ log = logger.get_logger("ui")
 # is a 24 px grid with a fixed rail and a stretchy content area, so it gains room
 # rather than gaps — and the telemetry cards, the orb and the log view are all
 # things there was never enough of.
-_WINDOW_SIZE = (1440, 810)
-_MIN_SIZE = (1050, 600)
-# Below this the minimum would fight the screen instead of the layout, so a small
-# display falls back to the proportions the window shipped with.
-_FLOOR_SIZE = (700, 400)
-# How much of the work area the opening size may take before it is scaled down.
-# Not 1.0: a window that exactly fills the work area reads as a botched maximise.
-_SCREEN_FRACTION = 0.92
+_WINDOW_SIZE = (960, 540)
+_MIN_SIZE = (700, 400)
 _HEADER_H = 46
 _SIDEBAR_W = 160
 _RESIZE_MARGIN = 10
@@ -162,9 +156,8 @@ class MainWindow(QWidget):
         # widget is the thing being made see-through.
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
-        opening, minimum = self._sizes_for_screen()
-        self.setMinimumSize(*minimum)
-        self.resize(*opening)
+        self.setMinimumSize(*_MIN_SIZE)
+        self.resize(*_WINDOW_SIZE)
         self.setStyleSheet(theme.STYLESHEET)
 
         self._build_ui()
@@ -181,29 +174,6 @@ class MainWindow(QWidget):
         self._apply_state(controller.state)
 
     # ------------------------------------------------------------------ UI
-
-    def _sizes_for_screen(self) -> tuple[tuple[int, int], tuple[int, int]]:
-        """Opening and minimum size, scaled down if the display is small.
-
-        The preferred size is deliberately generous, which on a 1366×768 laptop
-        would put a 1440-wide frame partly off-screen and — worse — set a minimum
-        the user could not resize below. So both are fitted to the available work
-        area, keeping the aspect ratio, and the minimum never grows past what the
-        window shipped with.
-        """
-        screen = self.screen() or QGuiApplication.primaryScreen()
-        if screen is None:                              # headless; nothing to fit
-            return _WINDOW_SIZE, _MIN_SIZE
-        area = screen.availableGeometry()
-        room_w = int(area.width() * _SCREEN_FRACTION)
-        room_h = int(area.height() * _SCREEN_FRACTION)
-        scale = min(1.0, room_w / _WINDOW_SIZE[0], room_h / _WINDOW_SIZE[1])
-        opening = (int(_WINDOW_SIZE[0] * scale), int(_WINDOW_SIZE[1] * scale))
-        minimum = (
-            max(_FLOOR_SIZE[0], min(_MIN_SIZE[0], opening[0])),
-            max(_FLOOR_SIZE[1], min(_MIN_SIZE[1], opening[1])),
-        )
-        return opening, minimum
 
     def _build_ui(self) -> None:
         self._outer = QVBoxLayout(self)

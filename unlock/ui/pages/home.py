@@ -71,15 +71,17 @@ class HomePage(QWidget):
         self.setObjectName("commandHome")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(48, 12, 48, 26)
-        layout.setSpacing(14)
+        layout.setContentsMargins(36, 8, 36, 16)
+        layout.setSpacing(10)
 
         self._orb = ConnectionOrb()
         self._orb.clicked.connect(self.power_clicked)
         layout.addWidget(self._orb, 1)
 
         layout.addLayout(self._build_status())
+        layout.addSpacing(4)
         layout.addLayout(self._build_telemetry())
+        layout.addSpacing(4)
         layout.addLayout(self._build_footer())
 
         self._uptime_timer = QTimer(self)
@@ -124,17 +126,15 @@ class HomePage(QWidget):
         for (kind, caption, samples), value in zip(_METRICS, values):
             card = QFrame()
             card.setObjectName("referenceMetric")
-            card.setMinimumHeight(112)
+            card.setMinimumHeight(88)
             if kind == "telegram":
-                # The whole telemetry card is an affordance, not only the value
-                # line, which makes retrying the tg:// handoff discoverable.
                 card.setCursor(Qt.CursorShape.PointingHandCursor)
                 card.setToolTip(tr("Click to offer the proxy to Telegram again."))
                 card.mouseReleaseEvent = self._on_telegram_clicked
 
             body = QVBoxLayout(card)
-            body.setContentsMargins(22, 18, 22, 18)
-            body.setSpacing(4)
+            body.setContentsMargins(16, 12, 16, 12)
+            body.setSpacing(3)
 
             header = QHBoxLayout()
             header.setSpacing(9)
@@ -181,8 +181,8 @@ class HomePage(QWidget):
         headline, detail = (tr(text) for text in _STATE_TEXT[state])
         if state is State.BENCHMARKING and benchmark_open:
             detail = tr("Press the button to reopen the test window")
-        anim.crossfade_text(self._headline, headline)
-        anim.crossfade_text(self._detail, detail)
+        self._headline.setText(headline)
+        self._detail.setText(detail)
         self._orb.set_state(state)
         self.refresh_uptime()
         self.refresh_metrics()
@@ -191,16 +191,12 @@ class HomePage(QWidget):
         self._orb.play_toggle_transition(enabling)
 
     def set_status(self, message: str) -> None:
-        # tr() falls back to its argument, so a status built with an f-string
-        # still shows in English rather than going missing.
-        anim.crossfade_text(self._detail, tr(message))
+        self._detail.setText(tr(message))
         self.refresh_metrics()
 
     def refresh_metrics(self) -> None:
-        # Falls back to the configured name so a re-test is visible here even
-        # while the engine is stopped.
         dpi = self._controller.dpi
-        anim.crossfade_text(self._strategy_value, dpi.active_name or dpi.selected or "—")
+        self._strategy_value.setText(dpi.active_name or dpi.selected or "—")
 
         telegram = self._controller.telegram
         if telegram.running:
@@ -209,12 +205,12 @@ class HomePage(QWidget):
                 text += tr(" · disguised as HTTPS")
         else:
             text = tr("Not running")
-        anim.crossfade_text(self._telegram_value, text)
+        self._telegram_value.setText(text)
         self._copy_link.setEnabled(bool(self._controller.proxy_link))
 
     def refresh_uptime(self) -> None:
         """«Вы защищены уже 47 дней» — blank until the very first connect."""
-        anim.crossfade_text(self._uptime, self._controller.uptime_phrase(i18n.current()))
+        self._uptime.setText(self._controller.uptime_phrase(i18n.current()))
 
     def set_latency(self, ms: float) -> None:
         if ms < 0:

@@ -33,7 +33,7 @@ from ...constants import APP_VERSION, CONFIG_PATH, LOG_PATH
 from ...controllers import Controller
 from ...logger import get_logger
 from ...strategies import load_strategies
-from .. import anim, i18n, theme
+from .. import i18n, theme
 from ..canvas import TerminalPage
 from ..i18n import tr
 from ..widgets import GamepadGlyph, NoScrollComboBox, Switch
@@ -102,7 +102,6 @@ class SettingsPage(QScrollArea):
         for card in cards:
             layout.addWidget(card)
         layout.addStretch(1)
-        anim.stagger_in(cards)
 
         self.setWidget(page)
         self.setWidgetResizable(True)
@@ -350,7 +349,6 @@ class SettingsPage(QScrollArea):
             + f' <a href="{info.page_url}">{tr("Open the release page")}</a>'
         )
         self._update_notice.show()
-        anim.fade_in(self._update_notice)
 
     # ----------------------------------------------------------------- paths
 
@@ -454,7 +452,7 @@ class SettingsPage(QScrollArea):
     def refresh_game_hint(self) -> None:
         enabled = self._controller.game_filter
         self._game_glyph.set_active(enabled)
-        anim.crossfade_text(self._game_hint, tr(
+        self._game_hint.setText(tr(
             "Voice chat, matchmaking and game traffic go through the bypass too."
             if enabled else
             "Off — only web ports are filtered. Turn on if games or voice chat lag."
