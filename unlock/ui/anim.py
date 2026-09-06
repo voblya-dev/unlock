@@ -38,7 +38,7 @@ CONTROL = 380     # a control under the cursor, where a long tail reads as lag
 NORMAL = 520      # a single card or panel arriving
 SLOW = 760        # a column of cards, where the cascade is the point
 EXPAND = 1000     # a panel growing to or from nothing
-PAGE = 680        # the tab transition: the largest thing on screen that moves
+PAGE = 900        # the tab transition: slide + cross-fade, generous for butter-smooth feel
 TEXT = 260        # one half of a text crossfade, so a swap lands in ~520 ms
 
 # OutQuint over OutCubic: at these durations a cubic tail still arrives with a
