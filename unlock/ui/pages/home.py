@@ -165,10 +165,7 @@ class HomePage(QWidget):
         row.addWidget(self._uptime, 1)
 
         self._copy_link = QPushButton(tr("Copy proxy link"))
-        self._copy_link.setToolTip(
-            tr("Copies the tg:// proxy link, for pasting into Telegram by hand "
-               "or sending to someone else on this network.")
-        )
+        self._copy_link.setObjectName("ghostButton")
         self._copy_link.setCursor(Qt.CursorShape.PointingHandCursor)
         self._copy_link.clicked.connect(self.copy_proxy_link)
         row.addWidget(self._copy_link, 0, Qt.AlignmentFlag.AlignRight)

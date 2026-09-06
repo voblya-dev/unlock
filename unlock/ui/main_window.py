@@ -42,12 +42,11 @@ from .widgets import ClippedPanel, ClippedStackedWidget, NavButton
 
 log = logger.get_logger("ui")
 
-# One and a half times the size this shipped at (960×540 / 700×400). The layout
-# is a 24 px grid with a fixed rail and a stretchy content area, so it gains room
-# rather than gaps — and the telemetry cards, the orb and the log view are all
-# things there was never enough of.
-_WINDOW_SIZE = (960, 540)
-_MIN_SIZE = (700, 400)
+# The opening size and the minimum are the same: a smaller window is not
+# offered, because every page is laid out for this frame and squeezing it
+# clipped the telemetry cards. Resizing larger stays allowed.
+_WINDOW_SIZE = (960, 620)
+_MIN_SIZE = _WINDOW_SIZE
 _HEADER_H = 46
 _SIDEBAR_W = 160
 _RESIZE_MARGIN = 10

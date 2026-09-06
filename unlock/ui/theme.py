@@ -164,6 +164,11 @@ QPushButton#heroSecondary:hover {{ background: {g['HOVER']}; border-color: {g['T
 #vpnMissionKicker, #vpnMissionHint {{ color: {g['TEXT_FAINT']}; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }}
 #vpnMissionHeadline {{ color: {g['TEXT']}; font-size: 26px; font-weight: 700; }}
 #vpnMissionDetail, #statusDetail, #hint {{ color: {g['TEXT_MUTED']}; font-size: 11px; }}
+/* A button that reads as part of the text row it sits in: same muted tone and
+   size as #hint, no card fill or border, and only the cursor says clickable. */
+QPushButton#ghostButton {{ background: transparent; border: none; border-radius: 6px; color: {g['TEXT_MUTED']}; font-size: 11px; font-weight: 600; padding: 2px 6px; }}
+QPushButton#ghostButton:hover {{ color: {g['TEXT']}; }}
+QPushButton#ghostButton:disabled {{ color: {g['TEXT_FAINT']}; }}
 #vpnStateRail {{ min-width: 170px; max-width: 220px; background: {g['BG']}; border: 1px solid {g['CARD_BORDER']}; border-radius: 10px; }}
 #vpnRouteValue {{ color: {g['TEXT']}; font-size: 13px; font-weight: 650; }}
 #vpnRouteState {{ color: {g['TEXT_FAINT']}; font-size: 10px; font-weight: 700; letter-spacing: 1px; }}
